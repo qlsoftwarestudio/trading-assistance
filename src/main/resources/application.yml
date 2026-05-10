@@ -1,0 +1,70 @@
+spring:
+  application:
+    name: trading-assistant
+  
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/tradingassistant}
+    username: ${SPRING_DATASOURCE_USERNAME:trading}
+    password: ${SPRING_DATASOURCE_PASSWORD:trading123}
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:create-drop}
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+
+server:
+  port: 8080
+
+# Binance Configuration
+binance:
+  api:
+    key: ${BINANCE_API_KEY:}
+    secret: ${BINANCE_SECRET_KEY:}
+    base-url: ${BINANCE_BASE_URL:https://testnet.binance.vision}
+    websocket-url: ${BINANCE_WS_URL:wss://testnet.binance.vision/ws}
+  testnet: ${BINANCE_TESTNET:true}
+
+# Trading Strategy Configuration
+trading:
+  strategy:
+    symbol: BTCUSDT
+    timeframe: 15m
+    rsi-length: 5
+    rsi-oversold: 30
+    lookback-bars: 12
+    killzone-threshold: 1.0
+    min-momentum: 0.8
+    stop-loss-pct: 2.0
+    take-profit-pct: 8.0
+    position-size-pct: 20.0
+    enabled: true
+
+# Telegram Configuration
+telegram:
+  bot:
+    token: ${TELEGRAM_BOT_TOKEN:}
+    chat-id: ${TELEGRAM_CHAT_ID:}
+    enabled: ${TELEGRAM_ENABLED:false}
+
+# Logging
+logging:
+  level:
+    com.trading.assistant: DEBUG
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

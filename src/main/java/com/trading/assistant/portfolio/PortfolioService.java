@@ -1,0 +1,140 @@
+package com.trading.assistant.portfolio;
+
+import com.trading.assistant.binance.BinanceClient;
+import com.trading.assistant.portfolio.model.DailyMetrics;
+import com.trading.assistant.portfolio.model.Trade;
+import com.trading.assistant.portfolio.repository.DailyMetricsRepository;
+import com.trading.assistant.portfolio.repository.TradeRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class PortfolioService {
+
+    private static final Logger logger = LoggerFactory.getLogger(PortfolioService.class);
+
+    @Autowired
+    private TradeRepository tradeRepository;
+
+    @Autowired
+    private DailyMetricsRepository dailyMetricsRepository;
+
+    @Autowired
+    private BinanceClient binanceClient;
+
+    /**
+     * Calculate daily metrics and save
+     */
+    @Scheduled(cron = "0 0 0 * * *") // Every day at midnight
+    public void calculateDailyMetrics() {
+        try {
+            LocalDate today = LocalDate.now();
+            
+            DailyMetrics metrics = new DailyMetrics(today);
+            
+            // Get counts
+            Long totalTrades = tradeRepository.count();
+            Long winningTrades = tradeRepository.countWinningTrades();
+            Long losingTrades = tradeRepository.countLosingTrades();
+            
+            metrics.setTotalTrades(totalTrades != null ? totalTrades.intValue() : 0);
+            metrics.setWinningTrades(winningTrades != null ? winningTrades.intValue() : 0);
+            metrics.setLosingTrades(losingTrades != null ? losingTrades.intValue() : 0);
+            
+            // Get P&L
+            BigDecimal totalPnl = tradeRepository.calculateTotalPnl();
+            metrics.setTotalPnl(totalPnl != null ? totalPnl : BigDecimal.ZERO);
+            
+            // Calculate derived metrics
+            metrics.calculateMetrics();
+            
+            // Calculate profit factor
+            BigDecimal grossProfit = tradeRepository.calculateGrossProfit();
+            BigDecimal grossLoss = tradeRepository.calculateGrossLoss();
+            
+            if (grossLoss != null && grossLoss.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal pf = grossProfit.divide(grossLoss, 4, RoundingMode.HALF_UP);
+                metrics.setProfitFactor(pf);
+            } else {
+                metrics.setProfitFactor(grossProfit.compareTo(BigDecimal.ZERO) > 0 ? 
+                        new BigDecimal("999.99") : BigDecimal.ZERO);
+            }
+            
+            dailyMetricsRepository.save(metrics);
+            logger.info("Daily metrics calculated and saved for {}", today);
+            
+        } catch (Exception e) {
+            logger.error("Error calculating daily metrics: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Get portfolio summary
+     */
+    public Map<String, Object> getPortfolioSummary() {
+        Map<String, Object> summary = new HashMap<>();
+        
+        // Balance
+        BigDecimal balance = binanceClient.getBalance("USDT");
+        summary.put("balance", balance);
+        
+        // Trades stats
+        Long totalTrades = tradeRepository.count();
+        Long winningTrades = tradeRepository.countWinningTrades();
+        Long losingTrades = tradeRepository.countLosingTrades();
+        Long openTrades = tradeRepository.countByStatus("OPEN");
+        
+        summary.put("totalTrades", totalTrades != null ? totalTrades : 0L);
+        summary.put("winningTrades", winningTrades != null ? winningTrades : 0L);
+        summary.put("losingTrades", losingTrades != null ? losingTrades : 0L);
+        summary.put("openTrades", openTrades);
+        
+        // Win rate
+        if (totalTrades != null && totalTrades > 0) {
+            BigDecimal winRate = BigDecimal.valueOf(winningTrades)
+                    .divide(BigDecimal.valueOf(totalTrades), 4, RoundingMode.HALF_UP)
+                    .multiply(BigDecimal.valueOf(100));
+            summary.put("winRate", winRate);
+        } else {
+            summary.put("winRate", BigDecimal.ZERO);
+        }
+        
+        // P&L
+        BigDecimal totalPnl = tradeRepository.calculateTotalPnl();
+        summary.put("totalPnl", totalPnl != null ? totalPnl : BigDecimal.ZERO);
+        
+        // Profit Factor
+        BigDecimal grossProfit = tradeRepository.calculateGrossProfit();
+        BigDecimal grossLoss = tradeRepository.calculateGrossLoss();
+        
+        if (grossLoss != null && grossLoss.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal pf = grossProfit.divide(grossLoss, 4, RoundingMode.HALF_UP);
+            summary.put("profitFactor", pf);
+        } else {
+            summary.put("profitFactor", grossProfit.compareTo(BigDecimal.ZERO) > 0 ? 
+                    new BigDecimal("999.99") : BigDecimal.ZERO);
+        }
+        
+        // Current price
+        BigDecimal currentPrice = binanceClient.getCurrentPrice();
+        summary.put("currentPrice", currentPrice);
+        
+        return summary;
+    }
+
+    /**
+     * Get latest daily metrics
+     */
+    public DailyMetrics getLatestMetrics() {
+        return dailyMetricsRepository.findTopByOrderByDateDesc().orElse(null);
+    }
+}

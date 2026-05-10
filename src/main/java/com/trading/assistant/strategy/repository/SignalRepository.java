@@ -1,0 +1,20 @@
+package com.trading.assistant.strategy.repository;
+
+import com.trading.assistant.strategy.model.Signal;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface SignalRepository extends JpaRepository<Signal, Long> {
+
+    List<Signal> findTop50ByOrderByGeneratedAtDesc();
+
+    List<Signal> findByExecutedFalseOrderByGeneratedAtDesc();
+
+    long countByExecutedTrue();
+
+    long countByActionAndExecutedTrue(String action);
+}
