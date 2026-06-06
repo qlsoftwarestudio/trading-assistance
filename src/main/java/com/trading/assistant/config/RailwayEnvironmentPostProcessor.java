@@ -16,7 +16,7 @@ import java.util.Map;
 public class RailwayEnvironmentPostProcessor implements EnvironmentPostProcessor {
 
     private static final String DATABASE_URL = "DATABASE_URL";
-    private static final String SPRING_DATASOURCE_URL = "SPRING_DATASOURCE_URL";
+    private static final String SPRING_DATASOURCE_URL = "spring.datasource.url";
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
@@ -27,7 +27,7 @@ public class RailwayEnvironmentPostProcessor implements EnvironmentPostProcessor
             return;
         }
 
-        // If SPRING_DATASOURCE_URL is already a valid jdbc URL, skip
+        // If spring.datasource.url is already a valid jdbc URL, skip
         if (existingSpringUrl != null && existingSpringUrl.startsWith("jdbc:")) {
             return;
         }
