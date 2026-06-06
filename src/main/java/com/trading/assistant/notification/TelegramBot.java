@@ -37,7 +37,7 @@ public class TelegramBot {
      */
     public void sendTradeNotification(Trade trade, String type) {
         if (!enabled || botToken.isEmpty() || chatId.isEmpty()) {
-            logger.debug("Telegram notifications disabled or not configured");
+            logger.info("Telegram skipped: enabled={}, tokenEmpty={}, chatIdEmpty={}", enabled, botToken.isEmpty(), chatId.isEmpty());
             return;
         }
 
@@ -54,6 +54,7 @@ public class TelegramBot {
      */
     public void sendAlert(String title, String message) {
         if (!enabled || botToken.isEmpty() || chatId.isEmpty()) {
+            logger.info("Telegram alert skipped: enabled={}, tokenEmpty={}, chatIdEmpty={}", enabled, botToken.isEmpty(), chatId.isEmpty());
             return;
         }
 
@@ -107,7 +108,7 @@ public class TelegramBot {
     private void sendMessage(String text) {
         String url = String.format(TELEGRAM_API_URL, botToken);
 
-        logger.info("Sending Telegram message: {}", text);
+        logger.info("Sending Telegram message to chatId={}", chatId);
 
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -119,7 +120,8 @@ public class TelegramBot {
             body.put("parse_mode", "Markdown");
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-            restTemplate.postForEntity(url, request, String.class);
+            var response = restTemplate.postForEntity(url, request, String.class);
+            logger.info("Telegram API response: status={}, body={}", response.getStatusCode(), response.getBody());
         } catch (Exception e) {
             logger.error("Telegram API error: {}", e.getMessage());
         }

@@ -1,5 +1,6 @@
 package com.trading.assistant.api;
 
+import com.trading.assistant.notification.TelegramBot;
 import com.trading.assistant.portfolio.PortfolioService;
 import com.trading.assistant.portfolio.model.DailyMetrics;
 import com.trading.assistant.portfolio.model.Trade;
@@ -41,6 +42,9 @@ public class DashboardController {
 
     @Autowired
     private BacktestService backtestService;
+
+    @Autowired
+    private TelegramBot telegramBot;
 
     /**
      * Health check
@@ -183,5 +187,19 @@ public class DashboardController {
             return ResponseEntity.badRequest().body(error);
         }
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Test Telegram notification
+     */
+    @PostMapping("/telegram/test")
+    @Operation(summary = "Test Telegram", description = "Send a test message to Telegram to verify configuration")
+    public ResponseEntity<Map<String, String>> testTelegram() {
+        telegramBot.sendAlert("Test", "✅ This is a test message from your Trading Assistant bot!");
+
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Test notification sent. Check your Telegram.");
+        response.put("timestamp", java.time.LocalDateTime.now().toString());
+        return ResponseEntity.ok(response);
     }
 }
