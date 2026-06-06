@@ -1,9 +1,11 @@
 package com.trading.assistant.execution;
 
 import com.trading.assistant.binance.BinanceClient;
+import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.notification.TelegramBot;
 import com.trading.assistant.portfolio.model.Trade;
 import com.trading.assistant.portfolio.repository.TradeRepository;
+import com.trading.assistant.strategy.IndicatorCalculator;
 import com.trading.assistant.strategy.model.Signal;
 import com.trading.assistant.strategy.repository.SignalRepository;
 import org.slf4j.Logger;
@@ -34,8 +36,20 @@ public class TradeManager {
     @Autowired
     private SignalRepository signalRepository;
 
+    @Autowired
+    private IndicatorCalculator indicatorCalculator;
+
     @Value("${trading.strategy.stop-loss-pct:2.0}")
     private double stopLossPct;
+
+    @Value("${trading.strategy.use-atr-stop:false}")
+    private boolean useAtrStop;
+
+    @Value("${trading.strategy.atr-period:14}")
+    private int atrPeriod;
+
+    @Value("${trading.strategy.atr-multiplier:2.0}")
+    private double atrMultiplier;
 
     @Value("${trading.strategy.take-profit-pct:8.0}")
     private double takeProfitPct;
@@ -48,6 +62,22 @@ public class TradeManager {
 
     @Value("${trading.strategy.leverage:5}")
     private int leverage;
+
+    private BigDecimal calculateFixedStopLoss(BigDecimal currentPrice, boolean isLong) {
+        if (isLong) {
+            return currentPrice.multiply(BigDecimal.valueOf(1 - stopLossPct / 100)).setScale(8, RoundingMode.HALF_UP);
+        } else {
+            return currentPrice.multiply(BigDecimal.valueOf(1 + stopLossPct / 100)).setScale(8, RoundingMode.HALF_UP);
+        }
+    }
+
+    private BigDecimal calculateFixedTakeProfit(BigDecimal currentPrice, boolean isLong) {
+        if (isLong) {
+            return currentPrice.multiply(BigDecimal.valueOf(1 + takeProfitPct / 100)).setScale(8, RoundingMode.HALF_UP);
+        } else {
+            return currentPrice.multiply(BigDecimal.valueOf(1 - takeProfitPct / 100)).setScale(8, RoundingMode.HALF_UP);
+        }
+    }
 
     /**
      * Check if there's an open position for given direction (LONG/SHORT)
@@ -89,20 +119,35 @@ public class TradeManager {
             // Calculate stop loss and take profit
             BigDecimal stopLoss;
             BigDecimal takeProfit;
-            if ("SHORT".equals(action)) {
-                stopLoss = currentPrice
-                        .multiply(BigDecimal.valueOf(1 + stopLossPct / 100))
-                        .setScale(8, RoundingMode.HALF_UP);
-                takeProfit = currentPrice
-                        .multiply(BigDecimal.valueOf(1 - takeProfitPct / 100))
-                        .setScale(8, RoundingMode.HALF_UP);
+            boolean isLong = "LONG".equals(action);
+
+            if (useAtrStop) {
+                List<Kline> klines = binanceClient.getKlines(symbol, "15m", atrPeriod + 5);
+                double atr = indicatorCalculator.calculateATR(klines, atrPeriod);
+                if (atr > 0) {
+                    stopLoss = indicatorCalculator.atrBasedStopLoss(currentPrice, atr, (int) Math.round(atrMultiplier), isLong)
+                            .setScale(8, RoundingMode.HALF_UP);
+                    // TP = 2x risk (reward/risk = 2:1)
+                    BigDecimal risk = isLong ? currentPrice.subtract(stopLoss) : stopLoss.subtract(currentPrice);
+                    if (isLong) {
+                        takeProfit = currentPrice.add(risk.multiply(BigDecimal.valueOf(2)));
+                    } else {
+                        takeProfit = currentPrice.subtract(risk.multiply(BigDecimal.valueOf(2)));
+                    }
+                    takeProfit = takeProfit.setScale(8, RoundingMode.HALF_UP);
+                    logger.info("ATR-based SL/TP for {}: ATR={:.4f}, SL={} ({}%), TP={} ({}%)",
+                            action, atr, stopLoss,
+                            indicatorCalculator.distanceToLevelPct(currentPrice, stopLoss),
+                            takeProfit,
+                            indicatorCalculator.distanceToLevelPct(currentPrice, takeProfit));
+                } else {
+                    logger.warn("ATR calculation failed, falling back to fixed pct stop");
+                    stopLoss = calculateFixedStopLoss(currentPrice, isLong);
+                    takeProfit = calculateFixedTakeProfit(currentPrice, isLong);
+                }
             } else {
-                stopLoss = currentPrice
-                        .multiply(BigDecimal.valueOf(1 - stopLossPct / 100))
-                        .setScale(8, RoundingMode.HALF_UP);
-                takeProfit = currentPrice
-                        .multiply(BigDecimal.valueOf(1 + takeProfitPct / 100))
-                        .setScale(8, RoundingMode.HALF_UP);
+                stopLoss = calculateFixedStopLoss(currentPrice, isLong);
+                takeProfit = calculateFixedTakeProfit(currentPrice, isLong);
             }
 
             logger.info("Executing {} entry - Price: {}, Quantity: {}, SL: {}, TP: {}",

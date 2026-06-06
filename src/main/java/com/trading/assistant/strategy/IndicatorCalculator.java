@@ -400,6 +400,47 @@ public class IndicatorCalculator {
         return Math.abs(level.subtract(currentPrice).doubleValue()) / currentPrice.doubleValue() * 100.0;
     }
 
+    // ============== ATR (Average True Range) ==============
+
+    /**
+     * Calculate ATR for volatility-based stop loss.
+     * ATR measures the average range of each candle (high-low including gaps).
+     * A common SL placement is 2x ATR below entry for LONG.
+     */
+    public double calculateATR(List<Kline> klines, int period) {
+        if (klines == null || klines.size() < period + 1) {
+            return 0.0;
+        }
+        double[] trueRanges = new double[klines.size()];
+        for (int i = 1; i < klines.size(); i++) {
+            Kline current = klines.get(i);
+            Kline previous = klines.get(i - 1);
+            double highLow = current.getHigh().subtract(current.getLow()).doubleValue();
+            double highPrevClose = Math.abs(current.getHigh().subtract(previous.getClose()).doubleValue());
+            double lowPrevClose = Math.abs(current.getLow().subtract(previous.getClose()).doubleValue());
+            trueRanges[i] = Math.max(highLow, Math.max(highPrevClose, lowPrevClose));
+        }
+        // Wilder's smoothing for ATR
+        double atr = 0;
+        for (int i = 1; i <= period; i++) {
+            atr += trueRanges[i];
+        }
+        atr /= period;
+        for (int i = period + 1; i < trueRanges.length; i++) {
+            atr = (atr * (period - 1) + trueRanges[i]) / period;
+        }
+        return atr;
+    }
+
+    public BigDecimal atrBasedStopLoss(BigDecimal entryPrice, double atr, int multiplier, boolean isLong) {
+        BigDecimal atrValue = BigDecimal.valueOf(atr * multiplier);
+        if (isLong) {
+            return entryPrice.subtract(atrValue).max(BigDecimal.ZERO);
+        } else {
+            return entryPrice.add(atrValue);
+        }
+    }
+
     // ============== CORRELATION ==============
 
     /**
