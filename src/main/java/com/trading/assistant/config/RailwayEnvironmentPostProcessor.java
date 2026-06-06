@@ -25,8 +25,8 @@ public class RailwayEnvironmentPostProcessor implements EnvironmentPostProcessor
             return;
         }
 
-        // If DB_HOST is already set, Railway likely provided separated vars already
-        if (environment.getProperty("DB_HOST") != null) {
+        // If PGHOST or DB_HOST is already set, Railway likely provided separated vars already
+        if (environment.getProperty("PGHOST") != null || environment.getProperty("DB_HOST") != null) {
             return;
         }
 
@@ -60,6 +60,13 @@ public class RailwayEnvironmentPostProcessor implements EnvironmentPostProcessor
                 user = parts[0];
                 password = parts[1];
             }
+
+            // Inject both PG* (Railway native) and DB_* (manual config) vars
+            properties.put("PGHOST", host);
+            properties.put("PGPORT", String.valueOf(port));
+            properties.put("PGDATABASE", path);
+            properties.put("PGUSER", user);
+            properties.put("PGPASSWORD", password);
 
             properties.put("DB_HOST", host);
             properties.put("DB_PORT", String.valueOf(port));

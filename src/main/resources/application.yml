@@ -3,9 +3,11 @@ spring:
     name: trading-assistant
   
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:tradingassistant}
-    username: ${DB_USER:trading}
-    password: ${DB_PASSWORD:trading123}
+    # Railway Postgres injects PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD
+    # Fallback to DB_* (manual Railway vars) then local defaults
+    url: jdbc:postgresql://${PGHOST:${DB_HOST:localhost}}:${PGPORT:${DB_PORT:5432}}/${PGDATABASE:${DB_NAME:tradingassistant}}
+    username: ${PGUSER:${DB_USER:trading}}
+    password: ${PGPASSWORD:${DB_PASSWORD:trading123}}
     driver-class-name: org.postgresql.Driver
   
   jpa:
