@@ -3,9 +3,9 @@ spring:
     name: trading-assistant
   
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/tradingassistant}
-    username: ${SPRING_DATASOURCE_USERNAME:trading}
-    password: ${SPRING_DATASOURCE_PASSWORD:trading123}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:tradingassistant}
+    username: ${DB_USER:trading}
+    password: ${DB_PASSWORD:trading123}
     driver-class-name: org.postgresql.Driver
   
   jpa:
