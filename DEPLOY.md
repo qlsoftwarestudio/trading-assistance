@@ -91,6 +91,18 @@ TELEGRAM_ENABLED=true
 JWT_SECRET=generar_random_string_largo_aqui_32_chars_min
 
 TRADING_STRATEGY_ENABLED=true
+
+# Market Context (Fase 1 - Inteligencia Macro)
+TRADING_CONTEXT_ENABLED=true
+TRADING_CONTEXT_REQUIRE_CONFLUENCE=false
+TRADING_CONTEXT_REQUIRE_VOLUME=true
+TRADING_CONTEXT_MIN_VOLUME_RATIO=1.0
+
+# Performance Tracking (Fase 2 - Memoria Historica)
+# Dejar en false las primeras 2 semanas para acumular datos
+TRADING_PERFORMANCE_AUTO_ADJUST=false
+TRADING_PERFORMANCE_MIN_SAMPLES=20
+TRADING_PERFORMANCE_ADJUSTMENT_DELTA_PCT=5.0
 ```
 
 ### 3.4 Deploy Automático
@@ -120,6 +132,12 @@ curl https://tu-url.railway.app/api/dashboard/summary
 
 # Strategy status
 curl https://tu-url.railway.app/api/strategy/status
+
+# Backtest (simula estrategia sobre 500 velas historicas)
+curl -X POST https://tu-url.railway.app/api/backtest?limit=500
+
+# Walk-forward backtest (detecta sobreajuste)
+curl -X POST https://tu-url.railway.app/api/backtest/walk-forward?limit=1000
 ```
 
 ### 4.3 Swagger UI
@@ -288,12 +306,13 @@ Antes de considerar el deploy exitoso:
 - [ ] Código en GitHub
 - [ ] Proyecto creado en Railway
 - [ ] PostgreSQL agregado al proyecto
-- [ ] Variables de entorno configuradas
+- [ ] Variables de entorno configuradas (incluir nuevos toggles de contexto)
 - [ ] Deploy exitoso (Healthy status)
 - [ ] Endpoints respondiendo correctamente
 - [ ] Swagger UI accesible
-- [ ] Logs mostrando ejecución normal
-- [ ] 1 semana de testnet sin errores
+- [ ] Backtest responde con trades simulados
+- [ ] Logs mostrando ejecución normal y contexto macro cargado
+- [ ] 1 semana de testnet sin errores (con contexto macro activo)
 - [ ] Switch a Binance Live completado
 
 ---

@@ -3,12 +3,17 @@ package com.trading.assistant.notification;
 import com.trading.assistant.portfolio.model.Trade;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.HashMap;
+import java.util.Map;
 
 @Component
 public class TelegramBot {
@@ -64,14 +69,16 @@ public class TelegramBot {
         StringBuilder sb = new StringBuilder();
 
         if ("ENTRY".equals(type)) {
-            sb.append("🟢 *LONG ENTRY EXECUTED*\n\n");
+            String direction = "LONG".equals(trade.getAction()) ? "🟢" : "🔴";
+            String label = "LONG".equals(trade.getAction()) ? "LONG ENTRY" : "SHORT ENTRY";
+            sb.append(String.format("%s *%s EXECUTED*\n\n", direction, label));
             sb.append(String.format("Symbol: %s\n", trade.getSymbol()));
             sb.append(String.format("Entry Price: $%s\n", trade.getEntryPrice()));
             sb.append(String.format("Quantity: %s\n", trade.getQuantity()));
             sb.append(String.format("Invested: $%s\n", trade.getInvestedAmount()));
-            sb.append(String.format("Stop Loss: $%s (%.1f%%)\n", 
+            sb.append(String.format("Stop Loss: $%s (%.1f%%)\n",
                     trade.getStopLoss(), calculatePercent(trade.getEntryPrice(), trade.getStopLoss())));
-            sb.append(String.format("Take Profit: $%s (+%.1f%%)\n", 
+            sb.append(String.format("Take Profit: $%s (+%.1f%%)\n",
                     trade.getTakeProfit(), calculatePercent(trade.getEntryPrice(), trade.getTakeProfit())));
             sb.append(String.format("\nTime: %s", trade.getEntryTime()));
 
@@ -92,7 +99,7 @@ public class TelegramBot {
 
     private double calculatePercent(BigDecimal entry, BigDecimal target) {
         return target.subtract(entry)
-                .divide(entry, 4, BigDecimal.ROUND_HALF_UP)
+                .divide(entry, 4, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(100))
                 .doubleValue();
     }
@@ -100,12 +107,8 @@ public class TelegramBot {
     private void sendMessage(String text) {
         String url = String.format(TELEGRAM_API_URL, botToken);
 
-        // Simple POST to Telegram API
-        // In production, use a proper Telegram Bot library
-        logger.info("Telegram message: {}", text);
+        logger.info("Sending Telegram message: {}", text);
 
-        // Uncomment when bot token is configured:
-        /*
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -120,6 +123,5 @@ public class TelegramBot {
         } catch (Exception e) {
             logger.error("Telegram API error: {}", e.getMessage());
         }
-        */
     }
 }

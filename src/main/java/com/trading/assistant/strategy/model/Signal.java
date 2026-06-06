@@ -27,10 +27,15 @@ public class Signal {
     @Column(precision = 20, scale = 8)
     private BigDecimal sessionLow;
 
+    @Column(precision = 20, scale = 8)
+    private BigDecimal sessionHigh;
+
     @Column(precision = 10, scale = 4)
     private BigDecimal momentum;
 
     private Boolean inBuyZone;
+
+    private Boolean inSellZone;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime generatedAt;
@@ -39,6 +44,33 @@ public class Signal {
 
     @Column(name = "trade_id")
     private Long tradeId;
+
+    // --- Market Context at signal generation ---
+    @Column(length = 10)
+    private String trend1h; // UP, DOWN, SIDEWAYS
+
+    @Column(length = 10)
+    private String trend4h;
+
+    @Column(length = 10)
+    private String trend1d;
+
+    @Column(precision = 5, scale = 2)
+    private BigDecimal relativeVolume;
+
+    @Column(precision = 10, scale = 4)
+    private BigDecimal btcCorrelation;
+
+    @Column(length = 10)
+    private String btcTrend1d;
+
+    private Boolean confluence;
+
+    @Column(precision = 10, scale = 4)
+    private BigDecimal distanceToSupportPct;
+
+    @Column(precision = 10, scale = 4)
+    private BigDecimal distanceToResistancePct;
 
     @PrePersist
     protected void onCreate() {
@@ -49,15 +81,18 @@ public class Signal {
     // Constructors
     public Signal() {}
 
-    public Signal(String symbol, String action, BigDecimal price, BigDecimal rsi, 
-                  BigDecimal sessionLow, BigDecimal momentum, Boolean inBuyZone) {
+    public Signal(String symbol, String action, BigDecimal price, BigDecimal rsi,
+                  BigDecimal sessionLow, BigDecimal sessionHigh, BigDecimal momentum,
+                  Boolean inBuyZone, Boolean inSellZone) {
         this.symbol = symbol;
         this.action = action;
         this.price = price;
         this.rsi = rsi;
         this.sessionLow = sessionLow;
+        this.sessionHigh = sessionHigh;
         this.momentum = momentum;
         this.inBuyZone = inBuyZone;
+        this.inSellZone = inSellZone;
     }
 
     // Getters and Setters
@@ -85,6 +120,12 @@ public class Signal {
     public Boolean getInBuyZone() { return inBuyZone; }
     public void setInBuyZone(Boolean inBuyZone) { this.inBuyZone = inBuyZone; }
 
+    public BigDecimal getSessionHigh() { return sessionHigh; }
+    public void setSessionHigh(BigDecimal sessionHigh) { this.sessionHigh = sessionHigh; }
+
+    public Boolean getInSellZone() { return inSellZone; }
+    public void setInSellZone(Boolean inSellZone) { this.inSellZone = inSellZone; }
+
     public LocalDateTime getGeneratedAt() { return generatedAt; }
 
     public Boolean getExecuted() { return executed; }
@@ -97,6 +138,38 @@ public class Signal {
     public boolean isLongSignal() {
         return "LONG".equals(this.action);
     }
+
+    public boolean isShortSignal() {
+        return "SHORT".equals(this.action);
+    }
+
+    // Market context getters/setters
+    public String getTrend1h() { return trend1h; }
+    public void setTrend1h(String trend1h) { this.trend1h = trend1h; }
+
+    public String getTrend4h() { return trend4h; }
+    public void setTrend4h(String trend4h) { this.trend4h = trend4h; }
+
+    public String getTrend1d() { return trend1d; }
+    public void setTrend1d(String trend1d) { this.trend1d = trend1d; }
+
+    public BigDecimal getRelativeVolume() { return relativeVolume; }
+    public void setRelativeVolume(BigDecimal relativeVolume) { this.relativeVolume = relativeVolume; }
+
+    public BigDecimal getBtcCorrelation() { return btcCorrelation; }
+    public void setBtcCorrelation(BigDecimal btcCorrelation) { this.btcCorrelation = btcCorrelation; }
+
+    public String getBtcTrend1d() { return btcTrend1d; }
+    public void setBtcTrend1d(String btcTrend1d) { this.btcTrend1d = btcTrend1d; }
+
+    public Boolean getConfluence() { return confluence; }
+    public void setConfluence(Boolean confluence) { this.confluence = confluence; }
+
+    public BigDecimal getDistanceToSupportPct() { return distanceToSupportPct; }
+    public void setDistanceToSupportPct(BigDecimal distanceToSupportPct) { this.distanceToSupportPct = distanceToSupportPct; }
+
+    public BigDecimal getDistanceToResistancePct() { return distanceToResistancePct; }
+    public void setDistanceToResistancePct(BigDecimal distanceToResistancePct) { this.distanceToResistancePct = distanceToResistancePct; }
 
     @Override
     public String toString() {

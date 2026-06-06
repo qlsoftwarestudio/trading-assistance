@@ -30,10 +30,7 @@ dependencies {
 	// Database
 	runtimeOnly 'org.postgresql:postgresql'
 	
-	// Binance Connector
-	implementation 'io.github.binance:binance-connector-java:3.2.0'
-	
-	// WebClient for REST calls
+	// WebClient for REST calls to Binance Futures API
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	
 	// Telegram Bot

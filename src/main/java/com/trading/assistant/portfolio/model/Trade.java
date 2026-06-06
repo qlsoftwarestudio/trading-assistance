@@ -2,6 +2,7 @@ package com.trading.assistant.portfolio.model;
 
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 
 @Entity
@@ -159,9 +160,13 @@ public class Trade {
         this.commission = commission;
         this.status = "CLOSED";
         
-        // Calculate P&L
-        this.pnl = exitPrice.subtract(this.entryPrice).multiply(this.quantity).subtract(commission);
-        this.pnlPercent = this.pnl.divide(this.investedAmount, 4, BigDecimal.ROUND_HALF_UP)
+        // Calculate P&L based on position direction
+        if ("SHORT".equals(this.action)) {
+            this.pnl = this.entryPrice.subtract(exitPrice).multiply(this.quantity).subtract(commission);
+        } else {
+            this.pnl = exitPrice.subtract(this.entryPrice).multiply(this.quantity).subtract(commission);
+        }
+        this.pnlPercent = this.pnl.divide(this.investedAmount, 4, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(100));
     }
 

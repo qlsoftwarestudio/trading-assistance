@@ -5,6 +5,7 @@ import com.trading.assistant.notification.TelegramBot;
 import com.trading.assistant.portfolio.model.Trade;
 import com.trading.assistant.portfolio.repository.TradeRepository;
 import com.trading.assistant.strategy.model.Signal;
+import com.trading.assistant.strategy.repository.SignalRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +31,9 @@ public class TradeManager {
     @Autowired
     private TelegramBot telegramBot;
 
+    @Autowired
+    private SignalRepository signalRepository;
+
     @Value("${trading.strategy.stop-loss-pct:2.0}")
     private double stopLossPct;
 
@@ -39,21 +43,36 @@ public class TradeManager {
     @Value("${trading.strategy.position-size-pct:20.0}")
     private double positionSizePct;
 
-    @Value("${trading.strategy.symbol:BTCUSDT}")
+    @Value("${trading.strategy.symbol:HYPEUSDT}")
     private String symbol;
 
+    @Value("${trading.strategy.leverage:5}")
+    private int leverage;
+
     /**
-     * Check if there's an open position
+     * Check if there's an open position for given direction (LONG/SHORT)
      */
-    public boolean hasOpenPosition() {
-        long openTrades = tradeRepository.countByStatus("OPEN");
-        return openTrades > 0;
+    public boolean hasOpenPosition(String action) {
+        return tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN")
+                .stream()
+                .anyMatch(t -> t.getAction().equals(action));
     }
 
     /**
      * Execute LONG entry based on signal
      */
     public void executeLongEntry(Signal signal) {
+        executeEntry(signal, "LONG", binanceClient::placeBuyOrder);
+    }
+
+    /**
+     * Execute SHORT entry based on signal
+     */
+    public void executeShortEntry(Signal signal) {
+        executeEntry(signal, "SHORT", binanceClient::placeShortSellOrder);
+    }
+
+    private void executeEntry(Signal signal, String action, OrderPlacer orderPlacer) {
         try {
             BigDecimal currentPrice = signal.getPrice();
             BigDecimal balance = binanceClient.getBalance("USDT");
@@ -63,29 +82,39 @@ public class TradeManager {
                     .multiply(BigDecimal.valueOf(positionSizePct))
                     .divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
 
-            // Calculate quantity
-            BigDecimal quantity = positionSize.divide(currentPrice, 8, RoundingMode.HALF_DOWN);
+            // Calculate quantity (consider leverage)
+            BigDecimal notional = positionSize.multiply(BigDecimal.valueOf(leverage));
+            BigDecimal quantity = notional.divide(currentPrice, 8, RoundingMode.HALF_DOWN);
 
             // Calculate stop loss and take profit
-            BigDecimal stopLoss = currentPrice
-                    .multiply(BigDecimal.valueOf(1 - stopLossPct / 100))
-                    .setScale(8, RoundingMode.HALF_UP);
+            BigDecimal stopLoss;
+            BigDecimal takeProfit;
+            if ("SHORT".equals(action)) {
+                stopLoss = currentPrice
+                        .multiply(BigDecimal.valueOf(1 + stopLossPct / 100))
+                        .setScale(8, RoundingMode.HALF_UP);
+                takeProfit = currentPrice
+                        .multiply(BigDecimal.valueOf(1 - takeProfitPct / 100))
+                        .setScale(8, RoundingMode.HALF_UP);
+            } else {
+                stopLoss = currentPrice
+                        .multiply(BigDecimal.valueOf(1 - stopLossPct / 100))
+                        .setScale(8, RoundingMode.HALF_UP);
+                takeProfit = currentPrice
+                        .multiply(BigDecimal.valueOf(1 + takeProfitPct / 100))
+                        .setScale(8, RoundingMode.HALF_UP);
+            }
 
-            BigDecimal takeProfit = currentPrice
-                    .multiply(BigDecimal.valueOf(1 + takeProfitPct / 100))
-                    .setScale(8, RoundingMode.HALF_UP);
-
-            logger.info("Executing LONG entry - Price: {}, Quantity: {}, SL: {}, TP: {}",
-                    currentPrice, quantity, stopLoss, takeProfit);
+            logger.info("Executing {} entry - Price: {}, Quantity: {}, SL: {}, TP: {}",
+                    action, currentPrice, quantity, stopLoss, takeProfit);
 
             // Place order on Binance
-            String orderId = binanceClient.placeBuyOrder(quantity);
+            String orderId = orderPlacer.place(quantity);
 
             if (orderId != null) {
-                // Save trade to database
                 Trade trade = new Trade(
                         symbol,
-                        "LONG",
+                        action,
                         currentPrice,
                         quantity,
                         positionSize,
@@ -95,21 +124,20 @@ public class TradeManager {
                 trade.setBinanceOrderId(orderId);
                 tradeRepository.save(trade);
 
-                // Update signal with trade reference
                 signal.setExecuted(true);
                 signal.setTradeId(trade.getId());
+                signalRepository.save(signal);
 
-                // Send notification
                 telegramBot.sendTradeNotification(trade, "ENTRY");
 
-                logger.info("✅ LONG trade executed successfully. Trade ID: {}, Order ID: {}",
-                        trade.getId(), orderId);
+                logger.info("✅ {} trade executed successfully. Trade ID: {}, Order ID: {}",
+                        action, trade.getId(), orderId);
             } else {
-                logger.error("❌ Failed to execute LONG order on Binance");
+                logger.error("❌ Failed to execute {} order on Binance", action);
             }
 
         } catch (Exception e) {
-            logger.error("Error executing LONG entry: {}", e.getMessage(), e);
+            logger.error("Error executing {} entry: {}", action, e.getMessage(), e);
         }
     }
 
@@ -134,44 +162,61 @@ public class TradeManager {
         BigDecimal entryPrice = trade.getEntryPrice();
         BigDecimal stopLoss = trade.getStopLoss();
         BigDecimal takeProfit = trade.getTakeProfit();
+        boolean isShort = "SHORT".equals(trade.getAction());
 
-        // Check if stop loss hit
-        if (currentPrice.compareTo(stopLoss) <= 0) {
-            logger.info("🛑 Stop Loss hit for Trade {}. Current: {}, SL: {}",
-                    trade.getId(), currentPrice, stopLoss);
-            closeTrade(trade, currentPrice, "STOP_LOSS");
-            return;
+        // For SHORT: SL is above entry, TP is below entry
+        if (isShort) {
+            if (currentPrice.compareTo(stopLoss) >= 0) {
+                logger.info("🛑 Stop Loss hit for SHORT Trade {}. Current: {}, SL: {}",
+                        trade.getId(), currentPrice, stopLoss);
+                closeTrade(trade, currentPrice, "STOP_LOSS");
+                return;
+            }
+            if (currentPrice.compareTo(takeProfit) <= 0) {
+                logger.info("🎯 Take Profit hit for SHORT Trade {}. Current: {}, TP: {}",
+                        trade.getId(), currentPrice, takeProfit);
+                closeTrade(trade, currentPrice, "TAKE_PROFIT");
+                return;
+            }
+        } else {
+            if (currentPrice.compareTo(stopLoss) <= 0) {
+                logger.info("🛑 Stop Loss hit for LONG Trade {}. Current: {}, SL: {}",
+                        trade.getId(), currentPrice, stopLoss);
+                closeTrade(trade, currentPrice, "STOP_LOSS");
+                return;
+            }
+            if (currentPrice.compareTo(takeProfit) >= 0) {
+                logger.info("🎯 Take Profit hit for LONG Trade {}. Current: {}, TP: {}",
+                        trade.getId(), currentPrice, takeProfit);
+                closeTrade(trade, currentPrice, "TAKE_PROFIT");
+                return;
+            }
         }
 
-        // Check if take profit hit
-        if (currentPrice.compareTo(takeProfit) >= 0) {
-            logger.info("🎯 Take Profit hit for Trade {}. Current: {}, TP: {}",
-                    trade.getId(), currentPrice, takeProfit);
-            closeTrade(trade, currentPrice, "TAKE_PROFIT");
-            return;
-        }
-
-        // Log monitoring every 15 minutes
-        BigDecimal pnl = currentPrice.subtract(entryPrice).multiply(trade.getQuantity());
+        // Log monitoring
+        BigDecimal pnl = isShort
+                ? entryPrice.subtract(currentPrice).multiply(trade.getQuantity())
+                : currentPrice.subtract(entryPrice).multiply(trade.getQuantity());
         logger.debug("Monitoring Trade {} - Current P&L: ${}", trade.getId(), pnl);
     }
 
     private void closeTrade(Trade trade, BigDecimal exitPrice, String reason) {
         try {
-            // Place sell order on Binance
-            String orderId = binanceClient.placeSellOrder(trade.getQuantity());
+            String orderId;
+            if ("SHORT".equals(trade.getAction())) {
+                orderId = binanceClient.placeShortBuyOrder(trade.getQuantity());
+            } else {
+                orderId = binanceClient.placeSellOrder(trade.getQuantity());
+            }
 
             if (orderId != null) {
-                // Calculate commission (0.06% per trade = 0.12% round trip)
                 BigDecimal commission = trade.getInvestedAmount()
                         .multiply(BigDecimal.valueOf(0.0012))
                         .setScale(8, RoundingMode.HALF_UP);
 
-                // Close trade
                 trade.close(exitPrice, reason, commission);
                 tradeRepository.save(trade);
 
-                // Send notification
                 telegramBot.sendTradeNotification(trade, "EXIT");
 
                 logger.info("✅ Trade {} closed. Reason: {}, P&L: ${} ({}%)",
@@ -183,6 +228,11 @@ public class TradeManager {
         } catch (Exception e) {
             logger.error("Error closing trade {}: {}", trade.getId(), e.getMessage(), e);
         }
+    }
+
+    @FunctionalInterface
+    private interface OrderPlacer {
+        String place(BigDecimal quantity);
     }
 
     /**

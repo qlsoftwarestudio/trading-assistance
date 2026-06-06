@@ -17,4 +17,6 @@ public interface SignalRepository extends JpaRepository<Signal, Long> {
     long countByExecutedTrue();
 
     long countByActionAndExecutedTrue(String action);
+
+    List<Signal> findByExecutedTrue();
 }

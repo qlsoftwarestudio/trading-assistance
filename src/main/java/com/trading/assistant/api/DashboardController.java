@@ -4,7 +4,9 @@ import com.trading.assistant.portfolio.PortfolioService;
 import com.trading.assistant.portfolio.model.DailyMetrics;
 import com.trading.assistant.portfolio.model.Trade;
 import com.trading.assistant.portfolio.repository.TradeRepository;
-import com.trading.assistant.strategy.Btc15mStrategy;
+import com.trading.assistant.strategy.HypeStrategy;
+import com.trading.assistant.strategy.backtest.BacktestResult;
+import com.trading.assistant.strategy.backtest.BacktestService;
 import com.trading.assistant.strategy.model.Signal;
 import com.trading.assistant.strategy.repository.SignalRepository;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,7 +37,10 @@ public class DashboardController {
     private SignalRepository signalRepository;
 
     @Autowired
-    private Btc15mStrategy btc15mStrategy;
+    private HypeStrategy hypeStrategy;
+
+    @Autowired
+    private BacktestService backtestService;
 
     /**
      * Health check
@@ -117,7 +122,7 @@ public class DashboardController {
     @Operation(summary = "Get strategy status", description = "Returns current strategy configuration and status")
     public ResponseEntity<Map<String, String>> getStrategyStatus() {
         Map<String, String> status = new HashMap<>();
-        status.put("strategy", btc15mStrategy.getStrategyStatus());
+        status.put("strategy", hypeStrategy.getStrategyStatus());
         status.put("status", "ACTIVE");
         return ResponseEntity.ok(status);
     }
@@ -128,7 +133,7 @@ public class DashboardController {
     @PostMapping("/strategy/execute")
     @Operation(summary = "Execute strategy manually", description = "Manually trigger strategy execution (for testing)")
     public ResponseEntity<Map<String, String>> executeStrategy() {
-        btc15mStrategy.executeStrategyManual();
+        hypeStrategy.executeStrategyManual();
         
         Map<String, String> response = new HashMap<>();
         response.put("message", "Strategy executed manually with real kline data");
@@ -142,11 +147,41 @@ public class DashboardController {
     @PostMapping("/trades/monitor")
     @Operation(summary = "Monitor trades", description = "Manually trigger trade monitoring (for testing)")
     public ResponseEntity<Map<String, String>> monitorTrades() {
-        btc15mStrategy.monitorOpenTrades();
-        
+        hypeStrategy.monitorOpenTrades();
+
         Map<String, String> response = new HashMap<>();
         response.put("message", "Trade monitoring executed");
         response.put("timestamp", java.time.LocalDateTime.now().toString());
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Run backtest with current strategy parameters
+     */
+    @PostMapping("/backtest")
+    @Operation(summary = "Run backtest", description = "Simulate strategy on historical klines")
+    public ResponseEntity<?> runBacktest(@RequestParam(defaultValue = "500") int limit) {
+        BacktestResult result = backtestService.runBacktest(limit);
+        if (result == null) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Not enough data for backtest");
+            return ResponseEntity.badRequest().body(error);
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * Run walk-forward backtest
+     */
+    @PostMapping("/backtest/walk-forward")
+    @Operation(summary = "Run walk-forward backtest", description = "Train on 70% / test on 30% to detect overfitting")
+    public ResponseEntity<?> runWalkForwardBacktest(@RequestParam(defaultValue = "500") int limit) {
+        BacktestResult result = backtestService.runWalkForwardBacktest(limit);
+        if (result == null) {
+            Map<String, String> error = new HashMap<>();
+            error.put("error", "Not enough data for walk-forward backtest");
+            return ResponseEntity.badRequest().body(error);
+        }
+        return ResponseEntity.ok(result);
     }
 }

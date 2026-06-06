@@ -25,24 +25,39 @@ binance:
   api:
     key: ${BINANCE_API_KEY:}
     secret: ${BINANCE_SECRET_KEY:}
-    base-url: ${BINANCE_BASE_URL:https://testnet.binance.vision}
-    websocket-url: ${BINANCE_WS_URL:wss://testnet.binance.vision/ws}
+    base-url: ${BINANCE_BASE_URL:https://testnet.binancefuture.com}
+    websocket-url: ${BINANCE_WS_URL:wss://testnet.binancefuture.com/ws}
   testnet: ${BINANCE_TESTNET:true}
 
 # Trading Strategy Configuration
 trading:
   strategy:
-    symbol: BTCUSDT
+    symbol: HYPEUSDT
     timeframe: 15m
     rsi-length: 5
     rsi-oversold: 30
+    rsi-overbought: 70
     lookback-bars: 12
     killzone-threshold: 1.0
     min-momentum: 0.8
-    stop-loss-pct: 2.0
-    take-profit-pct: 8.0
+    stop-loss-pct: 1.0
+    take-profit-pct: 3.0
     position-size-pct: 20.0
+    leverage: 5
     enabled: true
+
+  # Market Context / Multi-timeframe Analysis
+  context:
+    enabled: true
+    require-confluence: false
+    require-volume: true
+    min-volume-ratio: 1.0
+
+  # Historical Performance & Auto-Adjustment
+  performance:
+    auto-adjust: false
+    min-samples: 20
+    adjustment-delta-pct: 5.0
 
 # Telegram Configuration
 telegram:
