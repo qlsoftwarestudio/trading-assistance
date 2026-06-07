@@ -28,6 +28,8 @@ public class BacktestEngine {
 
         List<BacktestTrade> trades = new ArrayList<>();
         BacktestPosition position = null;
+        int longSignalCount = 0;
+        int shortSignalCount = 0;
 
         int warmup = Math.max(params.rsiLength + 1, Math.max(params.lookbackBars, 50));
 
@@ -85,11 +87,12 @@ public class BacktestEngine {
                 double sessionHigh = calculator.calculateSessionHighFromKlines(window, params.lookbackBars);
                 double momentum = calculator.calculateMomentumFromKlines(window);
 
-                boolean inBuyZone = calculator.isInBuyZone(currentPrice.doubleValue(), sessionLow, params.killzoneThreshold);
-                boolean inSellZone = calculator.isInSellZone(currentPrice.doubleValue(), sessionHigh, params.killzoneThreshold);
+                boolean inBuyZone = calculator.isInBuyZone(currentPrice.doubleValue(), sessionLow, sessionHigh, params.killzoneThreshold);
+                boolean inSellZone = calculator.isInSellZone(currentPrice.doubleValue(), sessionLow, sessionHigh, params.killzoneThreshold);
 
                 // LONG entry
                 if (rsi < params.rsiOversold && inBuyZone && momentum > params.minMomentum) {
+                    longSignalCount++;
                     BigDecimal stopLoss = currentPrice
                             .multiply(BigDecimal.valueOf(1 - params.stopLossPct / 100.0))
                             .setScale(8, RoundingMode.HALF_UP);
@@ -102,6 +105,7 @@ public class BacktestEngine {
 
                 // SHORT entry
                 else if (rsi > params.rsiOverbought && inSellZone && momentum < -params.minMomentum) {
+                    shortSignalCount++;
                     BigDecimal stopLoss = currentPrice
                             .multiply(BigDecimal.valueOf(1 + params.stopLossPct / 100.0))
                             .setScale(8, RoundingMode.HALF_UP);
@@ -128,7 +132,9 @@ public class BacktestEngine {
             ));
         }
 
-        BacktestResult result = new BacktestResult(symbol, timeframe, trades);
+        long firstTimestamp = klines.isEmpty() ? 0 : klines.get(0).getTimestamp();
+        long lastTimestamp = klines.isEmpty() ? 0 : klines.get(klines.size() - 1).getTimestamp();
+        BacktestResult result = new BacktestResult(symbol, timeframe, trades, longSignalCount, shortSignalCount, firstTimestamp, lastTimestamp);
         logger.info("Backtest completed: {}", result);
         return result;
     }

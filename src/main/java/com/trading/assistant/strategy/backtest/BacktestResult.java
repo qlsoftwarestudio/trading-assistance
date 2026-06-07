@@ -22,8 +22,14 @@ public class BacktestResult {
     private final List<BacktestTrade> trades;
     private final String symbol;
     private final String timeframe;
+    private final int totalSignals;
+    private final int longSignals;
+    private final int shortSignals;
+    private final double avgSignalsPerDay;
+    private final double signalFrequencyPer100;
 
-    public BacktestResult(String symbol, String timeframe, List<BacktestTrade> trades) {
+    public BacktestResult(String symbol, String timeframe, List<BacktestTrade> trades,
+                          int longSignals, int shortSignals, long firstTimestamp, long lastTimestamp) {
         this.symbol = symbol;
         this.timeframe = timeframe;
         this.trades = trades;
@@ -86,6 +92,16 @@ public class BacktestResult {
         } else {
             this.sharpeRatio = 0.0;
         }
+
+        // Signal frequency metrics
+        this.longSignals = longSignals;
+        this.shortSignals = shortSignals;
+        this.totalSignals = longSignals + shortSignals;
+        long durationMs = lastTimestamp - firstTimestamp;
+        double durationDays = durationMs > 0 ? durationMs / (24.0 * 60.0 * 60.0 * 1000.0) : 0.0;
+        this.avgSignalsPerDay = durationDays > 0 ? totalSignals / durationDays : 0.0;
+        int totalBars = trades.isEmpty() ? 0 : trades.size(); // approximate, real value needs bar count
+        this.signalFrequencyPer100 = totalBars > 0 ? (totalSignals * 100.0) / totalBars : 0.0;
     }
 
     public int getTotalTrades() { return totalTrades; }
@@ -101,11 +117,17 @@ public class BacktestResult {
     public List<BacktestTrade> getTrades() { return trades; }
     public String getSymbol() { return symbol; }
     public String getTimeframe() { return timeframe; }
+    public int getTotalSignals() { return totalSignals; }
+    public int getLongSignals() { return longSignals; }
+    public int getShortSignals() { return shortSignals; }
+    public double getAvgSignalsPerDay() { return avgSignalsPerDay; }
+    public double getSignalFrequencyPer100() { return signalFrequencyPer100; }
 
     @Override
     public String toString() {
         return String.format(
-                "BacktestResult{symbol=%s, tf=%s, trades=%d, winRate=%.1f%%, pf=%.2f, maxDD=%.2f%%, sharpe=%.2f, pnl=%s}",
-                symbol, timeframe, totalTrades, winRate * 100, profitFactor, maxDrawdownPct, sharpeRatio, totalPnl);
+                "BacktestResult{symbol=%s, tf=%s, trades=%d, signals=%d (L=%d,S=%d), sig/day=%.2f, winRate=%.1f%%, pf=%.2f, maxDD=%.2f%%, sharpe=%.2f, pnl=%s}",
+                symbol, timeframe, totalTrades, totalSignals, longSignals, shortSignals,
+                avgSignalsPerDay, winRate * 100, profitFactor, maxDrawdownPct, sharpeRatio, totalPnl);
     }
 }

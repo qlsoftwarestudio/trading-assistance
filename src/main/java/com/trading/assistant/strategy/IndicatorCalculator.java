@@ -102,15 +102,20 @@ public class IndicatorCalculator {
     }
 
     /**
-     * Check if price is in buy zone (near session low)
+     * Check if price is in buy zone (bottom % of the session range).
+     * zonePercent = 25 means bottom 25% of the range (low to high).
+     * Mutually exclusive with isInSellZone.
      */
-    public boolean isInBuyZone(double currentPrice, double sessionLow, double thresholdPercent) {
-        if (currentPrice <= 0 || sessionLow <= 0) {
+    public boolean isInBuyZone(double currentPrice, double sessionLow, double sessionHigh, double zonePercent) {
+        if (currentPrice <= 0 || sessionLow <= 0 || sessionHigh <= 0) {
             return false;
         }
-
-        double distancePercent = ((currentPrice - sessionLow) / currentPrice) * 100.0;
-        return distancePercent < thresholdPercent;
+        double range = sessionHigh - sessionLow;
+        if (range <= 0) {
+            return false;
+        }
+        double positionInRange = (currentPrice - sessionLow) / range;
+        return positionInRange <= zonePercent / 100.0;
     }
 
     /**
@@ -130,15 +135,20 @@ public class IndicatorCalculator {
     }
 
     /**
-     * Check if price is in sell zone (near session high)
+     * Check if price is in sell zone (top % of the session range).
+     * zonePercent = 25 means top 25% of the range (high to low).
+     * Mutually exclusive with isInBuyZone.
      */
-    public boolean isInSellZone(double currentPrice, double sessionHigh, double thresholdPercent) {
-        if (currentPrice <= 0 || sessionHigh <= 0) {
+    public boolean isInSellZone(double currentPrice, double sessionLow, double sessionHigh, double zonePercent) {
+        if (currentPrice <= 0 || sessionLow <= 0 || sessionHigh <= 0) {
             return false;
         }
-
-        double distancePercent = ((sessionHigh - currentPrice) / currentPrice) * 100.0;
-        return distancePercent < thresholdPercent;
+        double range = sessionHigh - sessionLow;
+        if (range <= 0) {
+            return false;
+        }
+        double positionInRange = (sessionHigh - currentPrice) / range;
+        return positionInRange <= zonePercent / 100.0;
     }
 
     /**

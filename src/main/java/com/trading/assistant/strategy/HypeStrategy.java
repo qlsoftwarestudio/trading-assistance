@@ -112,8 +112,8 @@ public class HypeStrategy {
             double sessionLow = indicatorCalculator.calculateSessionLowFromKlines(klines, lookbackBars);
             double sessionHigh = indicatorCalculator.calculateSessionHighFromKlines(klines, lookbackBars);
             double momentum = indicatorCalculator.calculateMomentumFromKlines(klines);
-            boolean inBuyZone = indicatorCalculator.isInBuyZone(currentPrice.doubleValue(), sessionLow, killzoneThreshold);
-            boolean inSellZone = indicatorCalculator.isInSellZone(currentPrice.doubleValue(), sessionHigh, killzoneThreshold);
+            boolean inBuyZone = indicatorCalculator.isInBuyZone(currentPrice.doubleValue(), sessionLow, sessionHigh, killzoneThreshold);
+            boolean inSellZone = indicatorCalculator.isInSellZone(currentPrice.doubleValue(), sessionLow, sessionHigh, killzoneThreshold);
 
             logger.info("Indicators - RSI: {}, Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}",
                     String.format("%.2f", rsi),

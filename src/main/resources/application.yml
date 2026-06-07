@@ -39,11 +39,11 @@ trading:
     symbol: HYPEUSDT
     timeframe: 15m
     rsi-length: 5
-    rsi-oversold: 30
-    rsi-overbought: 70
-    lookback-bars: 12
-    killzone-threshold: 1.0
-    min-momentum: 0.8
+    rsi-oversold: 45
+    rsi-overbought: 55
+    lookback-bars: 24
+    killzone-threshold: 25.0
+    min-momentum: 0.3
     stop-loss-pct: 2.0
     take-profit-pct: 4.0
     position-size-pct: 20.0
