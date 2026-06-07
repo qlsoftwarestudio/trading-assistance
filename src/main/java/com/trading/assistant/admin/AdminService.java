@@ -35,19 +35,19 @@ public class AdminService {
     @Value("${trading.strategy.rsi-length:5}")
     private int rsiLength;
 
-    @Value("${trading.strategy.rsi-oversold:30}")
+    @Value("${trading.strategy.rsi-oversold:45}")
     private double rsiOversold;
 
-    @Value("${trading.strategy.rsi-overbought:70}")
+    @Value("${trading.strategy.rsi-overbought:55}")
     private double rsiOverbought;
 
-    @Value("${trading.strategy.lookback-bars:12}")
+    @Value("${trading.strategy.lookback-bars:24}")
     private int lookbackBars;
 
-    @Value("${trading.strategy.killzone-threshold:1.0}")
+    @Value("${trading.strategy.killzone-threshold:25.0}")
     private double killzoneThreshold;
 
-    @Value("${trading.strategy.min-momentum:0.8}")
+    @Value("${trading.strategy.min-momentum:0.3}")
     private double minMomentum;
 
     @Value("${trading.strategy.stop-loss-pct:2.0}")
