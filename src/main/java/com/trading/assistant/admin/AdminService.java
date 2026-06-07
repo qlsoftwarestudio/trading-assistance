@@ -77,6 +77,9 @@ public class AdminService {
     @Value("${trading.strategy.max-hold-minutes:30}")
     private int maxHoldMinutes;
 
+    @Value("${trading.strategy.require-rsi-reversal:true}")
+    private boolean requireRsiReversal;
+
     @Value("${trading.context.enabled:false}")
     private boolean contextEnabled;
 
@@ -126,6 +129,7 @@ public class AdminService {
         config.put("atrMultiplier", atrMultiplier);
         config.put("maxConcurrentTrades", maxConcurrentTrades);
         config.put("maxHoldMinutes", maxHoldMinutes);
+        config.put("requireRsiReversal", requireRsiReversal);
 
         config.put("contextEnabled", contextEnabled);
         config.put("requireConfluence", requireConfluence);

@@ -51,6 +51,7 @@ trading:
     enabled: true
     max-concurrent-trades: 2
     max-hold-minutes: 30
+    require-rsi-reversal: true
     # Risk Management - ATR-based dynamic stop (recommended for volatile assets)
     # When enabled: SL = entry ± (ATR * multiplier), TP = 2x risk (reward/risk = 2:1)
     use-atr-stop: true

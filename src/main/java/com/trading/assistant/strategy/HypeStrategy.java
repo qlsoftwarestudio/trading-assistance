@@ -78,6 +78,9 @@ public class HypeStrategy {
     @Value("${trading.performance.auto-adjust:false}")
     private boolean autoAdjustEnabled;
 
+    @Value("${trading.strategy.require-rsi-reversal:true}")
+    private boolean requireRsiReversal;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -109,6 +112,11 @@ public class HypeStrategy {
 
             BigDecimal currentPrice = indicatorCalculator.getCurrentPriceFromKlines(klines);
             double rsi = indicatorCalculator.calculateRSIFromKlines(klines);
+            double previousRsi = 50.0;
+            if (klines.size() > 1) {
+                List<Kline> prevKlines = klines.subList(0, klines.size() - 1);
+                previousRsi = indicatorCalculator.calculateRSIFromKlines(prevKlines);
+            }
             double sessionLow = indicatorCalculator.calculateSessionLowFromKlines(klines, lookbackBars);
             double sessionHigh = indicatorCalculator.calculateSessionHighFromKlines(klines, lookbackBars);
             double momentum = indicatorCalculator.calculateMomentumFromKlines(klines);
@@ -119,8 +127,9 @@ public class HypeStrategy {
             boolean breakoutBelow = indicatorCalculator.isBreakoutBelow(currentPrice.doubleValue(), sessionLow);
             double relativeVolume = indicatorCalculator.calculateRelativeVolume(klines, lookbackBars);
 
-            logger.info("Indicators - RSI: {}, Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {:.2f}x",
+            logger.info("Indicators - RSI: {} (prev: {}), Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {:.2f}x",
                     String.format("%.2f", rsi),
+                    String.format("%.2f", previousRsi),
                     String.format("%.4f", sessionLow),
                     String.format("%.4f", sessionHigh),
                     String.format("%.2f", momentum),
@@ -130,16 +139,17 @@ public class HypeStrategy {
                     breakoutBelow,
                     relativeVolume);
 
-            evaluateLongEntry(currentPrice, rsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext);
-            evaluateShortEntry(currentPrice, rsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext);
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext);
 
         } catch (Exception e) {
             logger.error("Error executing strategy: {}", e.getMessage(), e);
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx) {
-        boolean meanReversionCondition = rsi < rsiOversold && inBuyZone;
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx) {
+        boolean rsiReversingUp = rsi > previousRsi;
+        boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
 
         if (meanReversionCondition || breakoutCondition) {
@@ -166,8 +176,8 @@ public class HypeStrategy {
             }
 
             String entryType = meanReversionCondition ? "Mean-Reversion" : "Breakout";
-            logger.info("🟢 LONG SIGNAL DETECTED ({})! RSI: {}, BuyZone: {}, Breakout: {}, Volume: {:.2f}x, Momentum: {}",
-                    entryType, rsi, inBuyZone, breakoutAbove, relativeVolume, momentum);
+            logger.info("🟢 LONG SIGNAL DETECTED ({})! RSI: {} (prev: {}), BuyZone: {}, RevUp: {}, Breakout: {}, Volume: {:.2f}x, Momentum: {}",
+                    entryType, rsi, previousRsi, inBuyZone, rsiReversingUp, breakoutAbove, relativeVolume, momentum);
 
             Signal signal = new Signal(
                     symbol,
@@ -185,13 +195,14 @@ public class HypeStrategy {
             signalRepository.save(signal);
             tradeManager.executeLongEntry(signal);
         } else {
-            logger.debug("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}) Breakout(Above:{}, Vol>1:{})",
-                    rsiOversold, rsi < rsiOversold, inBuyZone, breakoutAbove, relativeVolume >= 1.0);
+            logger.info("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}, RevUp:{}) Breakout(Above:{}, Vol>1:{})",
+                    rsiOversold, rsi < rsiOversold, inBuyZone, rsiReversingUp, breakoutAbove, relativeVolume >= 1.0);
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx) {
-        boolean meanReversionCondition = rsi > rsiOverbought && inSellZone;
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx) {
+        boolean rsiReversingDown = rsi < previousRsi;
+        boolean meanReversionCondition = rsi > rsiOverbought && inSellZone && (!requireRsiReversal || rsiReversingDown);
         boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
 
         if (meanReversionCondition || breakoutCondition) {
@@ -218,8 +229,8 @@ public class HypeStrategy {
             }
 
             String entryType = meanReversionCondition ? "Mean-Reversion" : "Breakout";
-            logger.info("🔴 SHORT SIGNAL DETECTED ({})! RSI: {}, SellZone: {}, Breakout: {}, Volume: {:.2f}x, Momentum: {}",
-                    entryType, rsi, inSellZone, breakoutBelow, relativeVolume, momentum);
+            logger.info("🔴 SHORT SIGNAL DETECTED ({})! RSI: {} (prev: {}), SellZone: {}, RevDown: {}, Breakout: {}, Volume: {:.2f}x, Momentum: {}",
+                    entryType, rsi, previousRsi, inSellZone, rsiReversingDown, breakoutBelow, relativeVolume, momentum);
 
             Signal signal = new Signal(
                     symbol,
@@ -237,8 +248,8 @@ public class HypeStrategy {
             signalRepository.save(signal);
             tradeManager.executeShortEntry(signal);
         } else {
-            logger.debug("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}) Breakout(Below:{}, Vol>1:{})",
-                    rsiOverbought, rsi > rsiOverbought, inSellZone, breakoutBelow, relativeVolume >= 1.0);
+            logger.info("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}, RevDown:{}) Breakout(Below:{}, Vol>1:{})",
+                    rsiOverbought, rsi > rsiOverbought, inSellZone, rsiReversingDown, breakoutBelow, relativeVolume >= 1.0);
         }
     }
 
