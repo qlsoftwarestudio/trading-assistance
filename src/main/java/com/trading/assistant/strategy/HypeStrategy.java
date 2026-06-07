@@ -78,14 +78,14 @@ public class HypeStrategy {
     @Value("${trading.performance.auto-adjust:false}")
     private boolean autoAdjustEnabled;
 
-    @Scheduled(fixedRate = 900000)
+    @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
             logger.info("Strategy is disabled. Skipping execution.");
             return;
         }
 
-        logger.info("Executing HYPEUSDT 15m LONG+SHORT strategy...");
+        logger.info("Executing HYPEUSDT 5m SCALPING strategy...");
 
         try {
             // 1. Market context analysis (multi-timeframe, volume, BTC)
@@ -115,34 +115,40 @@ public class HypeStrategy {
             boolean inBuyZone = indicatorCalculator.isInBuyZone(currentPrice.doubleValue(), sessionLow, sessionHigh, killzoneThreshold);
             boolean inSellZone = indicatorCalculator.isInSellZone(currentPrice.doubleValue(), sessionLow, sessionHigh, killzoneThreshold);
 
-            logger.info("Indicators - RSI: {}, Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}",
+            boolean breakoutAbove = indicatorCalculator.isBreakoutAbove(currentPrice.doubleValue(), sessionHigh);
+            boolean breakoutBelow = indicatorCalculator.isBreakoutBelow(currentPrice.doubleValue(), sessionLow);
+            double relativeVolume = indicatorCalculator.calculateRelativeVolume(klines, lookbackBars);
+
+            logger.info("Indicators - RSI: {}, Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {:.2f}x",
                     String.format("%.2f", rsi),
                     String.format("%.4f", sessionLow),
                     String.format("%.4f", sessionHigh),
                     String.format("%.2f", momentum),
                     inBuyZone,
-                    inSellZone);
+                    inSellZone,
+                    breakoutAbove,
+                    breakoutBelow,
+                    relativeVolume);
 
-            evaluateLongEntry(currentPrice, rsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, marketContext);
-            evaluateShortEntry(currentPrice, rsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, marketContext);
+            evaluateLongEntry(currentPrice, rsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext);
+            evaluateShortEntry(currentPrice, rsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext);
 
         } catch (Exception e) {
             logger.error("Error executing strategy: {}", e.getMessage(), e);
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, MarketContext ctx) {
-        boolean rsiOversoldCondition = rsi < rsiOversold;
-        boolean buyZoneCondition = inBuyZone;
-        boolean momentumCondition = momentum > minMomentum;
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx) {
+        boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && momentum > minMomentum;
+        boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
 
-        if (rsiOversoldCondition && buyZoneCondition && momentumCondition) {
+        if (meanReversionCondition || breakoutCondition) {
             if (tradeManager.hasOpenPosition("LONG")) {
                 logger.info("LONG position already open. Skipping new LONG signal.");
                 return;
             }
 
-            // Context filters
+            // Context filters (skipped when contextEnabled=false)
             if (contextEnabled && ctx != null) {
                 if (!ctx.supportsLong()) {
                     logger.info("❌ LONG rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
@@ -159,21 +165,9 @@ public class HypeStrategy {
                 }
             }
 
-            // Historical performance score
-            Signal protoSignal = new Signal(symbol, "LONG", currentPrice,
-                    BigDecimal.valueOf(rsi), BigDecimal.valueOf(sessionLow),
-                    BigDecimal.valueOf(sessionHigh), BigDecimal.valueOf(momentum), inBuyZone, inSellZone);
-            enrichSignalWithContext(protoSignal, ctx);
-            double score = signalPerformanceService.scoreSignal(protoSignal);
-            if (score < 0.3) {
-                logger.info("❌ LONG rejected: poor historical pattern score ({:.2f})", score);
-                return;
-            } else if (score > 0.7) {
-                logger.info("✅ LONG boosted: strong historical pattern score ({:.2f})", score);
-            }
-
-            logger.info("🟢 LONG SIGNAL DETECTED! RSI: {}, Buy Zone: {}, Momentum: {}",
-                    rsi, inBuyZone, momentum);
+            String entryType = meanReversionCondition ? "Mean-Reversion" : "Breakout";
+            logger.info("🟢 LONG SIGNAL DETECTED ({})! RSI: {}, BuyZone: {}, Breakout: {}, Volume: {:.2f}x, Momentum: {}",
+                    entryType, rsi, inBuyZone, breakoutAbove, relativeVolume, momentum);
 
             Signal signal = new Signal(
                     symbol,
@@ -191,23 +185,22 @@ public class HypeStrategy {
             signalRepository.save(signal);
             tradeManager.executeLongEntry(signal);
         } else {
-            logger.debug("No LONG signal. Conditions - RSI Oversold: {}, Buy Zone: {}, Strong Momentum: {}",
-                    rsiOversoldCondition, buyZoneCondition, momentumCondition);
+            logger.debug("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}, Mom>{}) Breakout(Above:{}, Vol>1:{})",
+                    rsiOversold, rsi < rsiOversold, inBuyZone, momentum > minMomentum, breakoutAbove, relativeVolume >= 1.0);
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, MarketContext ctx) {
-        boolean rsiOverboughtCondition = rsi > rsiOverbought;
-        boolean sellZoneCondition = inSellZone;
-        boolean momentumCondition = momentum < -minMomentum;
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx) {
+        boolean meanReversionCondition = rsi > rsiOverbought && inSellZone && momentum < -minMomentum;
+        boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
 
-        if (rsiOverboughtCondition && sellZoneCondition && momentumCondition) {
+        if (meanReversionCondition || breakoutCondition) {
             if (tradeManager.hasOpenPosition("SHORT")) {
                 logger.info("SHORT position already open. Skipping new SHORT signal.");
                 return;
             }
 
-            // Context filters
+            // Context filters (skipped when contextEnabled=false)
             if (contextEnabled && ctx != null) {
                 if (!ctx.supportsShort()) {
                     logger.info("❌ SHORT rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
@@ -224,21 +217,9 @@ public class HypeStrategy {
                 }
             }
 
-            // Historical performance score
-            Signal protoSignal = new Signal(symbol, "SHORT", currentPrice,
-                    BigDecimal.valueOf(rsi), BigDecimal.valueOf(sessionLow),
-                    BigDecimal.valueOf(sessionHigh), BigDecimal.valueOf(momentum), inBuyZone, inSellZone);
-            enrichSignalWithContext(protoSignal, ctx);
-            double score = signalPerformanceService.scoreSignal(protoSignal);
-            if (score < 0.3) {
-                logger.info("❌ SHORT rejected: poor historical pattern score ({:.2f})", score);
-                return;
-            } else if (score > 0.7) {
-                logger.info("✅ SHORT boosted: strong historical pattern score ({:.2f})", score);
-            }
-
-            logger.info("🔴 SHORT SIGNAL DETECTED! RSI: {}, Sell Zone: {}, Momentum: {}",
-                    rsi, inSellZone, momentum);
+            String entryType = meanReversionCondition ? "Mean-Reversion" : "Breakout";
+            logger.info("🔴 SHORT SIGNAL DETECTED ({})! RSI: {}, SellZone: {}, Breakout: {}, Volume: {:.2f}x, Momentum: {}",
+                    entryType, rsi, inSellZone, breakoutBelow, relativeVolume, momentum);
 
             Signal signal = new Signal(
                     symbol,
@@ -256,8 +237,8 @@ public class HypeStrategy {
             signalRepository.save(signal);
             tradeManager.executeShortEntry(signal);
         } else {
-            logger.debug("No SHORT signal. Conditions - RSI Overbought: {}, Sell Zone: {}, Strong Momentum: {}",
-                    rsiOverboughtCondition, sellZoneCondition, momentumCondition);
+            logger.debug("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}, Mom<{}) Breakout(Below:{}, Vol>1:{})",
+                    rsiOverbought, rsi > rsiOverbought, inSellZone, momentum < -minMomentum, breakoutBelow, relativeVolume >= 1.0);
         }
     }
 
@@ -279,7 +260,7 @@ public class HypeStrategy {
         executeStrategy();
     }
 
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRate = 30000)
     public void monitorOpenTrades() {
         if (!strategyEnabled) {
             return;
@@ -322,7 +303,7 @@ public class HypeStrategy {
     }
 
     public String getStrategyStatus() {
-        return String.format("Strategy: HYPEUSDT 15m LONG+SHORT | Enabled: %s | Symbol: %s | " +
+        return String.format("Strategy: HYPEUSDT 5m SCALPING | Enabled: %s | Symbol: %s | " +
                         "RSI(%d) < %.0f / > %.0f | Lookback: %d | Killzone: %.1f%% | Min Momentum: %.1f%% | " +
                         "Context: %s",
                 strategyEnabled, symbol, rsiLength, rsiOversold, rsiOverbought,

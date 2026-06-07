@@ -37,30 +37,30 @@ binance:
 trading:
   strategy:
     symbol: HYPEUSDT
-    timeframe: 15m
-    rsi-length: 5
-    rsi-oversold: 45
-    rsi-overbought: 55
-    lookback-bars: 24
-    killzone-threshold: 25.0
-    min-momentum: 0.3
-    stop-loss-pct: 2.0
-    take-profit-pct: 4.0
-    position-size-pct: 20.0
+    timeframe: 5m
+    rsi-length: 7
+    rsi-oversold: 40
+    rsi-overbought: 60
+    lookback-bars: 12
+    killzone-threshold: 10.0
+    min-momentum: 0.15
+    stop-loss-pct: 0.8
+    take-profit-pct: 1.5
+    position-size-pct: 10.0
     leverage: 5
     enabled: true
     # Risk Management - ATR-based dynamic stop (recommended for volatile assets)
     # When enabled: SL = entry ± (ATR * multiplier), TP = 2x risk (reward/risk = 2:1)
-    use-atr-stop: false
-    atr-period: 14
-    atr-multiplier: 2.0
+    use-atr-stop: true
+    atr-period: 10
+    atr-multiplier: 1.5
 
   # Market Context / Multi-timeframe Analysis
   context:
-    enabled: true
+    enabled: false
     require-confluence: false
-    require-volume: true
-    min-volume-ratio: 1.0
+    require-volume: false
+    min-volume-ratio: 1.2
 
   # Historical Performance & Auto-Adjustment
   performance:

@@ -476,4 +476,20 @@ public class IndicatorCalculator {
         if (denominator == 0) return 0.0;
         return numerator / denominator;
     }
+
+    // ============== BREAKOUT DETECTION ==============
+
+    /**
+     * Check if current price broke above the session high (momentum breakout).
+     */
+    public boolean isBreakoutAbove(double currentPrice, double sessionHigh) {
+        return currentPrice > sessionHigh;
+    }
+
+    /**
+     * Check if current price broke below the session low (momentum breakdown).
+     */
+    public boolean isBreakoutBelow(double currentPrice, double sessionLow) {
+        return currentPrice < sessionLow;
+    }
 }

@@ -26,58 +26,58 @@ public class AdminService {
     @Value("${trading.strategy.symbol:HYPEUSDT}")
     private String symbol;
 
-    @Value("${trading.strategy.timeframe:15m}")
+    @Value("${trading.strategy.timeframe:5m}")
     private String timeframe;
 
     @Value("${trading.strategy.enabled:true}")
     private boolean strategyEnabled;
 
-    @Value("${trading.strategy.rsi-length:5}")
+    @Value("${trading.strategy.rsi-length:7}")
     private int rsiLength;
 
-    @Value("${trading.strategy.rsi-oversold:45}")
+    @Value("${trading.strategy.rsi-oversold:40}")
     private double rsiOversold;
 
-    @Value("${trading.strategy.rsi-overbought:55}")
+    @Value("${trading.strategy.rsi-overbought:60}")
     private double rsiOverbought;
 
-    @Value("${trading.strategy.lookback-bars:24}")
+    @Value("${trading.strategy.lookback-bars:12}")
     private int lookbackBars;
 
-    @Value("${trading.strategy.killzone-threshold:25.0}")
+    @Value("${trading.strategy.killzone-threshold:10.0}")
     private double killzoneThreshold;
 
-    @Value("${trading.strategy.min-momentum:0.3}")
+    @Value("${trading.strategy.min-momentum:0.15}")
     private double minMomentum;
 
-    @Value("${trading.strategy.stop-loss-pct:2.0}")
+    @Value("${trading.strategy.stop-loss-pct:0.8}")
     private double stopLossPct;
 
-    @Value("${trading.strategy.take-profit-pct:4.0}")
+    @Value("${trading.strategy.take-profit-pct:1.5}")
     private double takeProfitPct;
 
-    @Value("${trading.strategy.position-size-pct:20.0}")
+    @Value("${trading.strategy.position-size-pct:10.0}")
     private double positionSizePct;
 
     @Value("${trading.strategy.leverage:5}")
     private int leverage;
 
-    @Value("${trading.strategy.use-atr-stop:false}")
+    @Value("${trading.strategy.use-atr-stop:true}")
     private boolean useAtrStop;
 
-    @Value("${trading.strategy.atr-period:14}")
+    @Value("${trading.strategy.atr-period:10}")
     private int atrPeriod;
 
-    @Value("${trading.strategy.atr-multiplier:2.0}")
+    @Value("${trading.strategy.atr-multiplier:1.5}")
     private double atrMultiplier;
 
-    @Value("${trading.context.enabled:true}")
+    @Value("${trading.context.enabled:false}")
     private boolean contextEnabled;
 
     @Value("${trading.context.require-confluence:false}")
     private boolean requireConfluence;
 
-    @Value("${trading.context.require-volume:true}")
+    @Value("${trading.context.require-volume:false}")
     private boolean requireVolume;
 
     @Value("${trading.context.min-volume-ratio:1.0}")
