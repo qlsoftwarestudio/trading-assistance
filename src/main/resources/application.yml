@@ -42,8 +42,8 @@ trading:
     rsi-oversold: 40
     rsi-overbought: 60
     lookback-bars: 12
-    killzone-threshold: 10.0
-    min-momentum: 0.15
+    killzone-threshold: 30.0
+    min-momentum: 0.05
     stop-loss-pct: 0.8
     take-profit-pct: 1.5
     position-size-pct: 10.0

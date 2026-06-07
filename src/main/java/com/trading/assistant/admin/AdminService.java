@@ -44,10 +44,10 @@ public class AdminService {
     @Value("${trading.strategy.lookback-bars:12}")
     private int lookbackBars;
 
-    @Value("${trading.strategy.killzone-threshold:10.0}")
+    @Value("${trading.strategy.killzone-threshold:30.0}")
     private double killzoneThreshold;
 
-    @Value("${trading.strategy.min-momentum:0.15}")
+    @Value("${trading.strategy.min-momentum:0.05}")
     private double minMomentum;
 
     @Value("${trading.strategy.stop-loss-pct:0.8}")

@@ -139,7 +139,7 @@ public class HypeStrategy {
     }
 
     private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx) {
-        boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && momentum > minMomentum;
+        boolean meanReversionCondition = rsi < rsiOversold && inBuyZone;
         boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
 
         if (meanReversionCondition || breakoutCondition) {
@@ -185,13 +185,13 @@ public class HypeStrategy {
             signalRepository.save(signal);
             tradeManager.executeLongEntry(signal);
         } else {
-            logger.debug("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}, Mom>{}) Breakout(Above:{}, Vol>1:{})",
-                    rsiOversold, rsi < rsiOversold, inBuyZone, momentum > minMomentum, breakoutAbove, relativeVolume >= 1.0);
+            logger.debug("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}) Breakout(Above:{}, Vol>1:{})",
+                    rsiOversold, rsi < rsiOversold, inBuyZone, breakoutAbove, relativeVolume >= 1.0);
         }
     }
 
     private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx) {
-        boolean meanReversionCondition = rsi > rsiOverbought && inSellZone && momentum < -minMomentum;
+        boolean meanReversionCondition = rsi > rsiOverbought && inSellZone;
         boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
 
         if (meanReversionCondition || breakoutCondition) {
@@ -237,8 +237,8 @@ public class HypeStrategy {
             signalRepository.save(signal);
             tradeManager.executeShortEntry(signal);
         } else {
-            logger.debug("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}, Mom<{}) Breakout(Below:{}, Vol>1:{})",
-                    rsiOverbought, rsi > rsiOverbought, inSellZone, momentum < -minMomentum, breakoutBelow, relativeVolume >= 1.0);
+            logger.debug("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}) Breakout(Below:{}, Vol>1:{})",
+                    rsiOverbought, rsi > rsiOverbought, inSellZone, breakoutBelow, relativeVolume >= 1.0);
         }
     }
 
