@@ -44,11 +44,13 @@ trading:
     lookback-bars: 12
     killzone-threshold: 30.0
     min-momentum: 0.05
-    stop-loss-pct: 0.8
-    take-profit-pct: 1.5
+    stop-loss-pct: 0.2
+    take-profit-pct: 0.4
     position-size-pct: 10.0
     leverage: 5
     enabled: true
+    max-concurrent-trades: 2
+    max-hold-minutes: 30
     # Risk Management - ATR-based dynamic stop (recommended for volatile assets)
     # When enabled: SL = entry ± (ATR * multiplier), TP = 2x risk (reward/risk = 2:1)
     use-atr-stop: true

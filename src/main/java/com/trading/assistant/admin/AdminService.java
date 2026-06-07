@@ -50,10 +50,10 @@ public class AdminService {
     @Value("${trading.strategy.min-momentum:0.05}")
     private double minMomentum;
 
-    @Value("${trading.strategy.stop-loss-pct:0.8}")
+    @Value("${trading.strategy.stop-loss-pct:0.2}")
     private double stopLossPct;
 
-    @Value("${trading.strategy.take-profit-pct:1.5}")
+    @Value("${trading.strategy.take-profit-pct:0.4}")
     private double takeProfitPct;
 
     @Value("${trading.strategy.position-size-pct:10.0}")
@@ -70,6 +70,12 @@ public class AdminService {
 
     @Value("${trading.strategy.atr-multiplier:1.5}")
     private double atrMultiplier;
+
+    @Value("${trading.strategy.max-concurrent-trades:2}")
+    private int maxConcurrentTrades;
+
+    @Value("${trading.strategy.max-hold-minutes:30}")
+    private int maxHoldMinutes;
 
     @Value("${trading.context.enabled:false}")
     private boolean contextEnabled;
@@ -118,6 +124,8 @@ public class AdminService {
         config.put("useAtrStop", useAtrStop);
         config.put("atrPeriod", atrPeriod);
         config.put("atrMultiplier", atrMultiplier);
+        config.put("maxConcurrentTrades", maxConcurrentTrades);
+        config.put("maxHoldMinutes", maxHoldMinutes);
 
         config.put("contextEnabled", contextEnabled);
         config.put("requireConfluence", requireConfluence);

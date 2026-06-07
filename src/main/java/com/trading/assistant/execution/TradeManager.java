@@ -16,6 +16,8 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -63,6 +65,12 @@ public class TradeManager {
     @Value("${trading.strategy.leverage:5}")
     private int leverage;
 
+    @Value("${trading.strategy.max-concurrent-trades:2}")
+    private int maxConcurrentTrades;
+
+    @Value("${trading.strategy.max-hold-minutes:30}")
+    private int maxHoldMinutes;
+
     private BigDecimal calculateFixedStopLoss(BigDecimal currentPrice, boolean isLong) {
         if (isLong) {
             return currentPrice.multiply(BigDecimal.valueOf(1 - stopLossPct / 100)).setScale(8, RoundingMode.HALF_UP);
@@ -107,10 +115,24 @@ public class TradeManager {
             BigDecimal currentPrice = signal.getPrice();
             BigDecimal balance = binanceClient.getBalance("USDT");
 
-            // Calculate position size (20% of balance)
-            BigDecimal positionSize = balance
+            // Check concurrent trade limit
+            long openCount = tradeRepository.countByStatus("OPEN");
+            if (openCount >= maxConcurrentTrades) {
+                logger.info("Max concurrent trades reached ({}/{}). Skipping {} entry.",
+                        openCount, maxConcurrentTrades, action);
+                return;
+            }
+
+            // Calculate position size: distribute available capital among remaining slots
+            int remainingSlots = maxConcurrentTrades - (int) openCount;
+            BigDecimal rawPositionSize = balance
                     .multiply(BigDecimal.valueOf(positionSizePct))
                     .divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+            BigDecimal positionSize = rawPositionSize
+                    .divide(BigDecimal.valueOf(remainingSlots), 8, RoundingMode.HALF_UP);
+
+            logger.info("Capital allocation - Balance: ${}, Raw pos size: ${}, Slots: {}/{}, Adjusted pos size: ${}",
+                    balance, rawPositionSize, openCount, maxConcurrentTrades, positionSize);
 
             // Calculate quantity (consider leverage)
             BigDecimal notional = positionSize.multiply(BigDecimal.valueOf(leverage));
@@ -208,6 +230,18 @@ public class TradeManager {
         BigDecimal stopLoss = trade.getStopLoss();
         BigDecimal takeProfit = trade.getTakeProfit();
         boolean isShort = "SHORT".equals(trade.getAction());
+        LocalDateTime entryTime = trade.getEntryTime();
+
+        // Time-based exit: close if held longer than maxHoldMinutes
+        if (entryTime != null) {
+            Duration held = Duration.between(entryTime, LocalDateTime.now());
+            if (held.toMinutes() >= maxHoldMinutes) {
+                logger.info("⏱️ Time exit for Trade {}. Held: {} min (max: {} min). Current: {}, Entry: {}",
+                        trade.getId(), held.toMinutes(), maxHoldMinutes, currentPrice, entryPrice);
+                closeTrade(trade, currentPrice, "TIME_EXIT");
+                return;
+            }
+        }
 
         // For SHORT: SL is above entry, TP is below entry
         if (isShort) {
@@ -238,11 +272,16 @@ public class TradeManager {
             }
         }
 
-        // Log monitoring
+        // Log monitoring (promote to INFO so it shows in Railway)
         BigDecimal pnl = isShort
                 ? entryPrice.subtract(currentPrice).multiply(trade.getQuantity())
                 : currentPrice.subtract(entryPrice).multiply(trade.getQuantity());
-        logger.debug("Monitoring Trade {} - Current P&L: ${}", trade.getId(), pnl);
+        BigDecimal pnlPercent = isShort
+                ? entryPrice.subtract(currentPrice).divide(entryPrice, 8, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
+                : currentPrice.subtract(entryPrice).divide(entryPrice, 8, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
+        logger.info("📊 Monitoring Trade {} - Current: {}, Entry: {}, P&L: ${} ({}%), SL: {}, TP: {}",
+                trade.getId(), currentPrice, entryPrice, pnl.setScale(4, RoundingMode.HALF_UP),
+                pnlPercent.setScale(2, RoundingMode.HALF_UP), stopLoss, takeProfit);
     }
 
     private void closeTrade(Trade trade, BigDecimal exitPrice, String reason) {
