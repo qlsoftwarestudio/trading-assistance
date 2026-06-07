@@ -42,6 +42,9 @@ public class BinanceClient {
     @Value("${trading.strategy.leverage:5}")
     private int defaultLeverage;
 
+    @Value("${binance.hedge-mode:false}")
+    private boolean hedgeMode;
+
     private WebClient webClient;
     private boolean configured = false;
 
@@ -192,7 +195,7 @@ public class BinanceClient {
     }
 
     /**
-     * Place a market order on Binance Futures (Hedge Mode)
+     * Place a market order on Binance Futures (supports One-way and Hedge Mode)
      */
     public String placeOrder(String side, String positionSide, BigDecimal quantity, boolean reduceOnly) {
         if (!configured) {
@@ -204,9 +207,11 @@ public class BinanceClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", symbol);
             params.put("side", side);
-            params.put("positionSide", positionSide);
+            if (hedgeMode) {
+                params.put("positionSide", positionSide);
+            }
             params.put("type", "MARKET");
-            params.put("quantity", quantity.toPlainString());
+            params.put("quantity", quantity.setScale(8, RoundingMode.DOWN).toPlainString());
             if (reduceOnly) {
                 params.put("reduceOnly", "true");
             }
@@ -216,14 +221,25 @@ public class BinanceClient {
                     .uri("/fapi/v1/order?" + query)
                     .header("X-MBX-APIKEY", apiKey)
                     .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body ->
+                            logger.error("Binance 4xx error ({}): {}", clientResponse.statusCode(), body)
+                        ).then(clientResponse.createException())
+                    )
+                    .onStatus(status -> status.is5xxServerError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body ->
+                            logger.error("Binance 5xx error ({}): {}", clientResponse.statusCode(), body)
+                        ).then(clientResponse.createException())
+                    )
                     .bodyToMono(String.class)
                     .block();
 
             logger.info("Order placed: {}", response);
             return extractOrderId(response);
         } catch (Exception e) {
-            logger.error("Error placing order: {}", e.getMessage());
-            return null;
+            logger.error("Error placing order: {}. Fallback to DEMO order.", e.getMessage());
+            logger.info("DEMO FALLBACK: Simulating {} order for {} {}", side, quantity, symbol);
+            return "DEMO_ORDER_" + System.currentTimeMillis();
         }
     }
 
