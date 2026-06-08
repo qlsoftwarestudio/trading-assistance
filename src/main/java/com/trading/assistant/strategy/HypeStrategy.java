@@ -96,9 +96,9 @@ public class HypeStrategy {
             if (contextEnabled) {
                 marketContext = marketContextAnalyzer.analyze();
                 if (marketContext != null) {
-                    logger.info("Market Context: trend1h={}, trend4h={}, trend1d={}, confluence={}, vol={:.2f}x",
+                    logger.info("Market Context: trend1h={}, trend4h={}, trend1d={}, confluence={}, vol={}x",
                             marketContext.getTrend1h(), marketContext.getTrend4h(), marketContext.getTrend1d(),
-                            marketContext.isConfluence(), marketContext.getRelativeVolume());
+                            marketContext.isConfluence(), String.format("%.2f", marketContext.getRelativeVolume()));
                 }
             }
 
