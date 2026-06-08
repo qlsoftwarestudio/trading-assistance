@@ -59,7 +59,7 @@ public class TelegramBot {
         }
 
         try {
-            String formatted = String.format("🔔 *%s*\n\n%s", title, message);
+            String formatted = String.format("🔔 <b>%s</b>\n\n%s", title, message);
             sendMessage(formatted);
         } catch (Exception e) {
             logger.error("Failed to send Telegram alert: {}", e.getMessage());
@@ -72,7 +72,7 @@ public class TelegramBot {
         if ("ENTRY".equals(type)) {
             String direction = "LONG".equals(trade.getAction()) ? "🟢" : "🔴";
             String label = "LONG".equals(trade.getAction()) ? "LONG ENTRY" : "SHORT ENTRY";
-            sb.append(String.format("%s *%s EXECUTED*\n\n", direction, label));
+            sb.append(String.format("%s <b>%s EXECUTED</b>\n\n", direction, label));
             sb.append(String.format("Symbol: %s\n", trade.getSymbol()));
             sb.append(String.format("Entry Price: $%s\n", trade.getEntryPrice()));
             sb.append(String.format("Quantity: %s\n", trade.getQuantity()));
@@ -84,13 +84,16 @@ public class TelegramBot {
             sb.append(String.format("\nTime: %s", trade.getEntryTime()));
 
         } else if ("EXIT".equals(type)) {
-            String emoji = trade.getPnl().compareTo(BigDecimal.ZERO) > 0 ? "🟢" : "🔴";
-            sb.append(String.format("%s *TRADE CLOSED* %s\n\n", emoji, emoji));
+            boolean isProfit = trade.getPnl().compareTo(BigDecimal.ZERO) > 0;
+            String emoji = isProfit ? "🟢" : "🔴";
+            sb.append(String.format("%s <b>TRADE CLOSED</b> %s\n\n", emoji, emoji));
             sb.append(String.format("Symbol: %s\n", trade.getSymbol()));
+            sb.append(String.format("Action: %s\n", trade.getAction()));
             sb.append(String.format("Exit Price: $%s\n", trade.getExitPrice()));
             sb.append(String.format("Reason: %s\n", trade.getExitReason()));
-            sb.append(String.format("\n*P&L: $%s (%s%%)*\n", 
-                    trade.getPnl(), trade.getPnlPercent()));
+            sb.append(String.format("\n<b>P&amp;L: $%s (%s%%)</b>\n",
+                    trade.getPnl().setScale(2, RoundingMode.HALF_UP),
+                    trade.getPnlPercent().setScale(2, RoundingMode.HALF_UP)));
             sb.append(String.format("Commission: $%s\n", trade.getCommission()));
             sb.append(String.format("\nTime: %s", trade.getExitTime()));
         }
@@ -117,7 +120,7 @@ public class TelegramBot {
             Map<String, Object> body = new HashMap<>();
             body.put("chat_id", chatId);
             body.put("text", text);
-            body.put("parse_mode", "Markdown");
+            body.put("parse_mode", "HTML");
 
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
             var response = restTemplate.postForEntity(url, request, String.class);

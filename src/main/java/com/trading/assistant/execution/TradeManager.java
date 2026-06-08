@@ -79,7 +79,31 @@ public class TradeManager {
     @Value("${trading.strategy.sl-cooldown-minutes:10}")
     private int slCooldownMinutes;
 
+    @Value("${trading.risk.max-daily-loss-pct:5.0}")
+    private double maxDailyLossPct;
+
+    @Value("${trading.risk.min-notional:5.0}")
+    private double minNotional;
+
     private final Map<String, LocalDateTime> lastSlTime = new ConcurrentHashMap<>();
+
+    private boolean isDailyLossLimitHit(BigDecimal balance) {
+        try {
+            LocalDateTime startOfDay = LocalDateTime.now().toLocalDate().atStartOfDay();
+            BigDecimal dailyPnl = tradeRepository.calculateDailyPnl(startOfDay);
+            BigDecimal limit = balance.multiply(BigDecimal.valueOf(maxDailyLossPct / 100)).negate();
+            if (dailyPnl.compareTo(limit) <= 0) {
+                logger.warn("🛑 Daily loss limit hit! Daily P&L: ${} / Limit: -{}% (${}).",
+                        dailyPnl.setScale(2, RoundingMode.HALF_UP),
+                        maxDailyLossPct,
+                        limit.abs().setScale(2, RoundingMode.HALF_UP));
+                return true;
+            }
+        } catch (Exception e) {
+            logger.warn("Could not check daily P&L: {}", e.getMessage());
+        }
+        return false;
+    }
 
     private boolean isCoolingDown(String action) {
         LocalDateTime last = lastSlTime.get(action);
@@ -137,6 +161,11 @@ public class TradeManager {
             BigDecimal currentPrice = signal.getPrice();
             BigDecimal balance = binanceClient.getBalance("USDT");
 
+            // Check daily loss limit
+            if (isDailyLossLimitHit(balance)) {
+                return;
+            }
+
             // Check SL cooldown
             if (isCoolingDown(action)) {
                 return;
@@ -164,6 +193,13 @@ public class TradeManager {
             // Calculate quantity (consider leverage)
             BigDecimal notional = positionSize.multiply(BigDecimal.valueOf(leverage));
             BigDecimal quantity = notional.divide(currentPrice, 8, RoundingMode.HALF_DOWN);
+
+            // Validate minimum notional
+            if (notional.compareTo(BigDecimal.valueOf(minNotional)) < 0) {
+                logger.warn("⚠️ Notional too small: ${} < ${} min. Skipping {} entry.",
+                        notional.setScale(2, RoundingMode.HALF_UP), minNotional, action);
+                return;
+            }
 
             // Calculate stop loss and take profit
             BigDecimal stopLoss;

@@ -72,6 +72,11 @@ trading:
     min-samples: 20
     adjustment-delta-pct: 5.0
 
+  # Risk Management
+  risk:
+    max-daily-loss-pct: 5.0
+    min-notional: 5.0
+
 # Telegram Configuration
 telegram:
   bot:

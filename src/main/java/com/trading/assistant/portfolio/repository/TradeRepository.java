@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.repository.query.Param;
 
 @Repository
 public interface TradeRepository extends JpaRepository<Trade, Long> {
@@ -38,6 +39,9 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
 
     @Query("SELECT t FROM Trade t WHERE t.status = 'OPEN' AND t.entryTime < :cutoffTime")
     List<Trade> findOldOpenTrades(LocalDateTime cutoffTime);
+
+    @Query("SELECT COALESCE(SUM(t.pnl), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.exitTime >= :startOfDay")
+    BigDecimal calculateDailyPnl(@Param("startOfDay") LocalDateTime startOfDay);
 
     long countByStatus(String status);
 }
