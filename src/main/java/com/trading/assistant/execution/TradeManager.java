@@ -19,7 +19,9 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class TradeManager {
@@ -74,6 +76,23 @@ public class TradeManager {
     @Value("${trading.strategy.breakeven-trigger-pct:0.3}")
     private double breakevenTriggerPct;
 
+    @Value("${trading.strategy.sl-cooldown-minutes:10}")
+    private int slCooldownMinutes;
+
+    private final Map<String, LocalDateTime> lastSlTime = new ConcurrentHashMap<>();
+
+    private boolean isCoolingDown(String action) {
+        LocalDateTime last = lastSlTime.get(action);
+        if (last == null) return false;
+        long elapsed = Duration.between(last, LocalDateTime.now()).toMinutes();
+        if (elapsed < slCooldownMinutes) {
+            logger.info("⏸️ Cooldown active for {} entries. {} min remaining (SL {} min ago).",
+                    action, slCooldownMinutes - elapsed, elapsed);
+            return true;
+        }
+        return false;
+    }
+
     private BigDecimal calculateFixedStopLoss(BigDecimal currentPrice, boolean isLong) {
         if (isLong) {
             return currentPrice.multiply(BigDecimal.valueOf(1 - stopLossPct / 100)).setScale(8, RoundingMode.HALF_UP);
@@ -117,6 +136,11 @@ public class TradeManager {
         try {
             BigDecimal currentPrice = signal.getPrice();
             BigDecimal balance = binanceClient.getBalance("USDT");
+
+            // Check SL cooldown
+            if (isCoolingDown(action)) {
+                return;
+            }
 
             // Check concurrent trade limit
             long openCount = tradeRepository.countByStatus("OPEN");
@@ -325,6 +349,12 @@ public class TradeManager {
 
                 trade.close(exitPrice, reason, commission);
                 tradeRepository.save(trade);
+
+                if ("STOP_LOSS".equals(reason)) {
+                    lastSlTime.put(trade.getAction(), LocalDateTime.now());
+                    logger.info("⏸️ SL cooldown started for {} - no new {} entries for {} min",
+                            trade.getAction(), trade.getAction(), slCooldownMinutes);
+                }
 
                 telegramBot.sendTradeNotification(trade, "EXIT");
 

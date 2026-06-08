@@ -77,8 +77,11 @@ public class AdminService {
     @Value("${trading.strategy.max-hold-minutes:20}")
     private int maxHoldMinutes;
 
-    @Value("${trading.strategy.breakeven-trigger-pct:0.3}")
+    @Value("${trading.strategy.breakeven-trigger-pct:0.6}")
     private double breakevenTriggerPct;
+
+    @Value("${trading.strategy.sl-cooldown-minutes:10}")
+    private int slCooldownMinutes;
 
     @Value("${trading.strategy.require-rsi-reversal:true}")
     private boolean requireRsiReversal;
@@ -133,6 +136,7 @@ public class AdminService {
         config.put("maxConcurrentTrades", maxConcurrentTrades);
         config.put("maxHoldMinutes", maxHoldMinutes);
         config.put("breakevenTriggerPct", breakevenTriggerPct);
+        config.put("slCooldownMinutes", slCooldownMinutes);
         config.put("requireRsiReversal", requireRsiReversal);
 
         config.put("contextEnabled", contextEnabled);

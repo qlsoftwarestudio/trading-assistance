@@ -127,7 +127,7 @@ public class HypeStrategy {
             boolean breakoutBelow = indicatorCalculator.isBreakoutBelow(currentPrice.doubleValue(), sessionLow);
             double relativeVolume = indicatorCalculator.calculateRelativeVolume(klines, lookbackBars);
 
-            logger.info("Indicators - RSI: {} (prev: {}), Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {:.2f}x",
+            logger.info("Indicators - RSI: {} (prev: {}), Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {}x",
                     String.format("%.2f", rsi),
                     String.format("%.2f", previousRsi),
                     String.format("%.4f", sessionLow),
@@ -137,7 +137,7 @@ public class HypeStrategy {
                     inSellZone,
                     breakoutAbove,
                     breakoutBelow,
-                    relativeVolume);
+                    String.format("%.2f", relativeVolume));
 
             evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext);
             evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext);
@@ -170,14 +170,16 @@ public class HypeStrategy {
                     return;
                 }
                 if (requireVolume && !marketContextAnalyzer.hasEnoughVolume(ctx)) {
-                    logger.info("❌ LONG rejected: volume too low (ratio={:.2f})", ctx.getRelativeVolume());
+                    logger.info("❌ LONG rejected: volume too low (ratio={})", String.format("%.2f", ctx.getRelativeVolume()));
                     return;
                 }
             }
 
             String entryType = meanReversionCondition ? "Mean-Reversion" : "Breakout";
-            logger.info("🟢 LONG SIGNAL DETECTED ({})! RSI: {} (prev: {}), BuyZone: {}, RevUp: {}, Breakout: {}, Volume: {:.2f}x, Momentum: {}",
-                    entryType, rsi, previousRsi, inBuyZone, rsiReversingUp, breakoutAbove, relativeVolume, momentum);
+            logger.info("🟢 LONG SIGNAL DETECTED ({})! RSI: {} (prev: {}), BuyZone: {}, RevUp: {}, Breakout: {}, Volume: {}x, Momentum: {}",
+                    entryType, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
+                    inBuyZone, rsiReversingUp, breakoutAbove,
+                    String.format("%.2f", relativeVolume), String.format("%.4f", momentum));
 
             Signal signal = new Signal(
                     symbol,
@@ -223,14 +225,16 @@ public class HypeStrategy {
                     return;
                 }
                 if (requireVolume && !marketContextAnalyzer.hasEnoughVolume(ctx)) {
-                    logger.info("❌ SHORT rejected: volume too low (ratio={:.2f})", ctx.getRelativeVolume());
+                    logger.info("❌ SHORT rejected: volume too low (ratio={})", String.format("%.2f", ctx.getRelativeVolume()));
                     return;
                 }
             }
 
             String entryType = meanReversionCondition ? "Mean-Reversion" : "Breakout";
-            logger.info("🔴 SHORT SIGNAL DETECTED ({})! RSI: {} (prev: {}), SellZone: {}, RevDown: {}, Breakout: {}, Volume: {:.2f}x, Momentum: {}",
-                    entryType, rsi, previousRsi, inSellZone, rsiReversingDown, breakoutBelow, relativeVolume, momentum);
+            logger.info("🔴 SHORT SIGNAL DETECTED ({})! RSI: {} (prev: {}), SellZone: {}, RevDown: {}, Breakout: {}, Volume: {}x, Momentum: {}",
+                    entryType, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
+                    inSellZone, rsiReversingDown, breakoutBelow,
+                    String.format("%.2f", relativeVolume), String.format("%.4f", momentum));
 
             Signal signal = new Signal(
                     symbol,

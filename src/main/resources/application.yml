@@ -44,8 +44,8 @@ trading:
     lookback-bars: 12
     killzone-threshold: 30.0
     min-momentum: 0.05
-    stop-loss-pct: 0.2
-    take-profit-pct: 0.4
+    stop-loss-pct: 0.4
+    take-profit-pct: 0.8
     position-size-pct: 10.0
     leverage: 5
     enabled: true
@@ -54,7 +54,8 @@ trading:
     require-rsi-reversal: true
     # Risk Management
     use-atr-stop: false
-    breakeven-trigger-pct: 0.3
+    breakeven-trigger-pct: 0.6
+    sl-cooldown-minutes: 10
     atr-period: 10
     atr-multiplier: 1.5
 
