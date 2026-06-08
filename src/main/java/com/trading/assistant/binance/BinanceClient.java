@@ -47,6 +47,7 @@ public class BinanceClient {
 
     private WebClient webClient;
     private boolean configured = false;
+    private int quantityPrecision = 1;
 
     @PostConstruct
     public void init() {
@@ -58,9 +59,31 @@ public class BinanceClient {
         if (apiKey != null && !apiKey.isEmpty() && apiSecret != null && !apiSecret.isEmpty()) {
             this.configured = true;
             logger.info("Binance Futures client configured for {} (Testnet: {})", baseUrl, baseUrl.contains("testnet"));
+            fetchQuantityPrecision();
             setLeverage(defaultLeverage);
         } else {
             logger.warn("Binance API keys not configured. Running in demo mode.");
+        }
+    }
+
+    private void fetchQuantityPrecision() {
+        try {
+            String response = webClient.get()
+                    .uri("/fapi/v1/exchangeInfo")
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            JsonNode root = mapper.readTree(response);
+            for (JsonNode s : root.get("symbols")) {
+                if (symbol.equals(s.get("symbol").asText())) {
+                    quantityPrecision = s.get("quantityPrecision").asInt();
+                    logger.info("Symbol {} quantityPrecision: {}", symbol, quantityPrecision);
+                    return;
+                }
+            }
+            logger.warn("Symbol {} not found in exchangeInfo, using default precision: {}", symbol, quantityPrecision);
+        } catch (Exception e) {
+            logger.warn("Could not fetch quantityPrecision for {}: {}. Using default: {}", symbol, e.getMessage(), quantityPrecision);
         }
     }
 
@@ -211,7 +234,7 @@ public class BinanceClient {
                 params.put("positionSide", positionSide);
             }
             params.put("type", "MARKET");
-            params.put("quantity", quantity.setScale(8, RoundingMode.DOWN).toPlainString());
+            params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             if (reduceOnly) {
                 params.put("reduceOnly", "true");
             }
