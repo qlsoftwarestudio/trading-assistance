@@ -39,8 +39,8 @@ trading:
     symbol: HYPEUSDT
     timeframe: 5m
     rsi-length: 7
-    rsi-oversold: 40
-    rsi-overbought: 60
+    rsi-oversold: 30
+    rsi-overbought: 70
     lookback-bars: 12
     killzone-threshold: 30.0
     min-momentum: 0.05
@@ -50,11 +50,11 @@ trading:
     leverage: 5
     enabled: true
     max-concurrent-trades: 2
-    max-hold-minutes: 30
+    max-hold-minutes: 20
     require-rsi-reversal: true
-    # Risk Management - ATR-based dynamic stop (recommended for volatile assets)
-    # When enabled: SL = entry ± (ATR * multiplier), TP = 2x risk (reward/risk = 2:1)
-    use-atr-stop: true
+    # Risk Management
+    use-atr-stop: false
+    breakeven-trigger-pct: 0.3
     atr-period: 10
     atr-multiplier: 1.5
 

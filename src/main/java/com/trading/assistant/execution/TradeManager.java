@@ -68,8 +68,11 @@ public class TradeManager {
     @Value("${trading.strategy.max-concurrent-trades:2}")
     private int maxConcurrentTrades;
 
-    @Value("${trading.strategy.max-hold-minutes:30}")
+    @Value("${trading.strategy.max-hold-minutes:20}")
     private int maxHoldMinutes;
+
+    @Value("${trading.strategy.breakeven-trigger-pct:0.3}")
+    private double breakevenTriggerPct;
 
     private BigDecimal calculateFixedStopLoss(BigDecimal currentPrice, boolean isLong) {
         if (isLong) {
@@ -231,6 +234,28 @@ public class TradeManager {
         BigDecimal takeProfit = trade.getTakeProfit();
         boolean isShort = "SHORT".equals(trade.getAction());
         LocalDateTime entryTime = trade.getEntryTime();
+
+        // Breakeven: if price moved favorably by breakevenTriggerPct%, move SL to entry
+        if (breakevenTriggerPct > 0 && entryPrice != null && stopLoss != null) {
+            BigDecimal triggerDistance = entryPrice.multiply(BigDecimal.valueOf(breakevenTriggerPct / 100));
+            if (isShort) {
+                BigDecimal breakevenLevel = entryPrice.subtract(triggerDistance);
+                if (currentPrice.compareTo(breakevenLevel) <= 0 && stopLoss.compareTo(entryPrice) > 0) {
+                    trade.setStopLoss(entryPrice);
+                    tradeRepository.save(trade);
+                    logger.info("🔒 Breakeven activated for SHORT Trade {}. SL moved to entry: {}",
+                            trade.getId(), entryPrice);
+                }
+            } else {
+                BigDecimal breakevenLevel = entryPrice.add(triggerDistance);
+                if (currentPrice.compareTo(breakevenLevel) >= 0 && stopLoss.compareTo(entryPrice) < 0) {
+                    trade.setStopLoss(entryPrice);
+                    tradeRepository.save(trade);
+                    logger.info("🔒 Breakeven activated for LONG Trade {}. SL moved to entry: {}",
+                            trade.getId(), entryPrice);
+                }
+            }
+        }
 
         // Time-based exit: close if held longer than maxHoldMinutes
         if (entryTime != null) {

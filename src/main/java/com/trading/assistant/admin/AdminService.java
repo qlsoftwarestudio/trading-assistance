@@ -35,10 +35,10 @@ public class AdminService {
     @Value("${trading.strategy.rsi-length:7}")
     private int rsiLength;
 
-    @Value("${trading.strategy.rsi-oversold:40}")
+    @Value("${trading.strategy.rsi-oversold:30}")
     private double rsiOversold;
 
-    @Value("${trading.strategy.rsi-overbought:60}")
+    @Value("${trading.strategy.rsi-overbought:70}")
     private double rsiOverbought;
 
     @Value("${trading.strategy.lookback-bars:12}")
@@ -62,7 +62,7 @@ public class AdminService {
     @Value("${trading.strategy.leverage:5}")
     private int leverage;
 
-    @Value("${trading.strategy.use-atr-stop:true}")
+    @Value("${trading.strategy.use-atr-stop:false}")
     private boolean useAtrStop;
 
     @Value("${trading.strategy.atr-period:10}")
@@ -74,8 +74,11 @@ public class AdminService {
     @Value("${trading.strategy.max-concurrent-trades:2}")
     private int maxConcurrentTrades;
 
-    @Value("${trading.strategy.max-hold-minutes:30}")
+    @Value("${trading.strategy.max-hold-minutes:20}")
     private int maxHoldMinutes;
+
+    @Value("${trading.strategy.breakeven-trigger-pct:0.3}")
+    private double breakevenTriggerPct;
 
     @Value("${trading.strategy.require-rsi-reversal:true}")
     private boolean requireRsiReversal;
@@ -129,6 +132,7 @@ public class AdminService {
         config.put("atrMultiplier", atrMultiplier);
         config.put("maxConcurrentTrades", maxConcurrentTrades);
         config.put("maxHoldMinutes", maxHoldMinutes);
+        config.put("breakevenTriggerPct", breakevenTriggerPct);
         config.put("requireRsiReversal", requireRsiReversal);
 
         config.put("contextEnabled", contextEnabled);
