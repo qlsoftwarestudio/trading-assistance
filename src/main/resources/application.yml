@@ -61,7 +61,7 @@ trading:
 
   # Market Context / Multi-timeframe Analysis
   context:
-    enabled: false
+    enabled: true
     require-confluence: false
     require-volume: false
     min-volume-ratio: 1.2

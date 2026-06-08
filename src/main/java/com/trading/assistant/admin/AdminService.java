@@ -86,7 +86,7 @@ public class AdminService {
     @Value("${trading.strategy.require-rsi-reversal:true}")
     private boolean requireRsiReversal;
 
-    @Value("${trading.context.enabled:false}")
+    @Value("${trading.context.enabled:true}")
     private boolean contextEnabled;
 
     @Value("${trading.context.require-confluence:false}")
