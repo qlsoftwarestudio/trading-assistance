@@ -84,6 +84,9 @@ public class HypeStrategy {
     @Value("${trading.strategy.use-vwap-filter:true}")
     private boolean useVwapFilter;
 
+    @Value("${trading.strategy.vwap-period:20}")
+    private int vwapPeriod;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -129,7 +132,8 @@ public class HypeStrategy {
             boolean breakoutAbove = indicatorCalculator.isBreakoutAbove(currentPrice.doubleValue(), sessionHigh);
             boolean breakoutBelow = indicatorCalculator.isBreakoutBelow(currentPrice.doubleValue(), sessionLow);
             double relativeVolume = indicatorCalculator.calculateRelativeVolume(klines, lookbackBars);
-            BigDecimal vwap = indicatorCalculator.calculateVWAP(klines);
+            int vwapFrom = Math.max(0, klines.size() - vwapPeriod);
+            BigDecimal vwap = indicatorCalculator.calculateVWAP(klines.subList(vwapFrom, klines.size()));
 
             logger.info("Indicators - RSI: {} (prev: {}), Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {}x, VWAP: {}",
                     String.format("%.2f", rsi),

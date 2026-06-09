@@ -57,6 +57,7 @@ trading:
     trailing-stop-pct: 0.6
     sl-cooldown-minutes: 10
     use-vwap-filter: true
+    vwap-period: 20
     atr-period: 10
     atr-multiplier: 1.5
 

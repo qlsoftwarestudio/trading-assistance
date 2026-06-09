@@ -76,8 +76,21 @@ public class MarketContextAnalyzer {
                 ctx.setTrend4h(MarketContext.TrendDirection.SIDEWAYS);
             }
 
-            if (klines1d != null && klines1d.size() >= 50) {
-                ctx.setTrend1d(indicatorCalculator.detectTrend(klines1d));
+            if (klines1d != null && klines1d.size() >= 20) {
+                // Use price vs EMA9 daily for faster trend detection (less lag than EMA20/50/200 cross)
+                double ema9_1d = indicatorCalculator.calculateEMAFromKlines(klines1d, 9);
+                double lastClose = klines1d.get(klines1d.size() - 1).getClose().doubleValue();
+                double prevClose = klines1d.get(klines1d.size() - 2).getClose().doubleValue();
+                if (lastClose < ema9_1d && prevClose < ema9_1d) {
+                    ctx.setTrend1d(MarketContext.TrendDirection.DOWN);
+                } else if (lastClose > ema9_1d && prevClose > ema9_1d) {
+                    ctx.setTrend1d(MarketContext.TrendDirection.UP);
+                } else {
+                    ctx.setTrend1d(MarketContext.TrendDirection.SIDEWAYS);
+                }
+                logger.info("trend1d calc: lastClose={}, prevClose={}, EMA9_1d={}, result={}",
+                        String.format("%.4f", lastClose), String.format("%.4f", prevClose),
+                        String.format("%.4f", ema9_1d), ctx.getTrend1d());
             } else {
                 ctx.setTrend1d(MarketContext.TrendDirection.SIDEWAYS);
             }
