@@ -50,10 +50,10 @@ public class AdminService {
     @Value("${trading.strategy.min-momentum:0.05}")
     private double minMomentum;
 
-    @Value("${trading.strategy.stop-loss-pct:0.2}")
+    @Value("${trading.strategy.stop-loss-pct:0.6}")
     private double stopLossPct;
 
-    @Value("${trading.strategy.take-profit-pct:0.4}")
+    @Value("${trading.strategy.take-profit-pct:1.2}")
     private double takeProfitPct;
 
     @Value("${trading.strategy.position-size-pct:10.0}")
@@ -74,7 +74,7 @@ public class AdminService {
     @Value("${trading.strategy.max-concurrent-trades:2}")
     private int maxConcurrentTrades;
 
-    @Value("${trading.strategy.max-hold-minutes:20}")
+    @Value("${trading.strategy.max-hold-minutes:25}")
     private int maxHoldMinutes;
 
     @Value("${trading.strategy.trailing-stop-pct:0.6}")
@@ -88,6 +88,15 @@ public class AdminService {
 
     @Value("${trading.strategy.use-vwap-filter:true}")
     private boolean useVwapFilter;
+
+    @Value("${trading.strategy.vwap-band-pct:0.5}")
+    private double vwapBandPct;
+
+    @Value("${trading.strategy.use-ema-filter:true}")
+    private boolean useEmaFilter;
+
+    @Value("${trading.strategy.ema-period:9}")
+    private int emaPeriod;
 
     @Value("${trading.context.enabled:true}")
     private boolean contextEnabled;
@@ -142,6 +151,9 @@ public class AdminService {
         config.put("slCooldownMinutes", slCooldownMinutes);
         config.put("requireRsiReversal", requireRsiReversal);
         config.put("useVwapFilter", useVwapFilter);
+        config.put("vwapBandPct", vwapBandPct);
+        config.put("useEmaFilter", useEmaFilter);
+        config.put("emaPeriod", emaPeriod);
 
         config.put("contextEnabled", contextEnabled);
         config.put("requireConfluence", requireConfluence);

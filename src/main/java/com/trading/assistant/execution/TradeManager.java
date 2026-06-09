@@ -282,9 +282,11 @@ public class TradeManager {
         try {
             List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
             BigDecimal currentPrice = binanceClient.getCurrentPrice();
+            List<Kline> klines = binanceClient.getKlines(symbol, "5m", 1);
+            Kline currentKline = (klines != null && !klines.isEmpty()) ? klines.get(0) : null;
 
             for (Trade trade : openTrades) {
-                checkAndCloseTrade(trade, currentPrice);
+                checkAndCloseTrade(trade, currentPrice, currentKline);
             }
 
         } catch (Exception e) {
@@ -292,7 +294,7 @@ public class TradeManager {
         }
     }
 
-    private void checkAndCloseTrade(Trade trade, BigDecimal currentPrice) {
+    private void checkAndCloseTrade(Trade trade, BigDecimal currentPrice, Kline currentKline) {
         BigDecimal entryPrice = trade.getEntryPrice();
         BigDecimal stopLoss = trade.getStopLoss();
         BigDecimal takeProfit = trade.getTakeProfit();
@@ -300,39 +302,58 @@ public class TradeManager {
         LocalDateTime entryTime = trade.getEntryTime();
 
         // Trailing stop: track favorable price movement and raise/lower SL
+        // Distance is dynamic: peak * trailingStopPct (not entryPrice)
         if (trailingStopPct > 0 && entryPrice != null && stopLoss != null) {
             BigDecimal peak = tradePeakPrices.getOrDefault(trade.getId(), entryPrice);
-            BigDecimal trailingDistance = entryPrice.multiply(BigDecimal.valueOf(trailingStopPct / 100));
+
+            // Update peak with current kline high/low to catch intrabar moves
+            if (currentKline != null) {
+                if (isShort) {
+                    BigDecimal klineLow = currentKline.getLow();
+                    if (klineLow != null && klineLow.compareTo(peak) < 0) {
+                        peak = klineLow;
+                    }
+                } else {
+                    BigDecimal klineHigh = currentKline.getHigh();
+                    if (klineHigh != null && klineHigh.compareTo(peak) > 0) {
+                        peak = klineHigh;
+                    }
+                }
+                tradePeakPrices.put(trade.getId(), peak);
+            } else {
+                // Fallback to currentPrice snapshot
+                if (isShort) {
+                    if (currentPrice.compareTo(peak) < 0) {
+                        peak = currentPrice;
+                    }
+                } else {
+                    if (currentPrice.compareTo(peak) > 0) {
+                        peak = currentPrice;
+                    }
+                }
+                tradePeakPrices.put(trade.getId(), peak);
+            }
+
+            BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(trailingStopPct / 100));
 
             if (isShort) {
-                // For SHORTs, track lowest price (most favorable)
-                if (currentPrice.compareTo(peak) < 0) {
-                    peak = currentPrice;
-                    tradePeakPrices.put(trade.getId(), peak);
-                }
                 BigDecimal newSL = peak.add(trailingDistance);
                 if (newSL.compareTo(stopLoss) < 0) {
                     trade.setStopLoss(newSL);
                     tradeRepository.save(trade);
-                    logger.info("� Trailing stop lowered for SHORT Trade {}. SL: {} (peak: {})",
+                    logger.info("Trailing stop lowered for SHORT Trade {}. SL: {} (peak: {})",
                             trade.getId(), newSL, peak);
                 }
             } else {
-                // For LONGs, track highest price (most favorable)
-                if (currentPrice.compareTo(peak) > 0) {
-                    peak = currentPrice;
-                    tradePeakPrices.put(trade.getId(), peak);
-                }
                 BigDecimal newSL = peak.subtract(trailingDistance);
                 if (newSL.compareTo(stopLoss) > 0) {
                     trade.setStopLoss(newSL);
                     tradeRepository.save(trade);
-                    logger.info("� Trailing stop raised for LONG Trade {}. SL: {} (peak: {})",
+                    logger.info("Trailing stop raised for LONG Trade {}. SL: {} (peak: {})",
                             trade.getId(), newSL, peak);
                 }
             }
         }
-
         // Time-based exit: close if held longer than maxHoldMinutes
         if (entryTime != null) {
             Duration held = Duration.between(entryTime, LocalDateTime.now());

@@ -37,7 +37,30 @@ public class BacktestEngine {
             List<Kline> window = klines.subList(0, i + 1); // datos disponibles hasta ahora (sin look-ahead)
             Kline current = klines.get(i);
 
-            // 1. Check if open position hit SL or TP
+            // 1. Update trailing stop for open position
+            if (position != null && params.trailingStopPct > 0) {
+                if (position.isShort()) {
+                    if (current.getLow().compareTo(position.peakPrice) < 0) {
+                        position.peakPrice = current.getLow();
+                    }
+                    BigDecimal trailingDistance = position.peakPrice.multiply(BigDecimal.valueOf(params.trailingStopPct / 100.0));
+                    BigDecimal newSL = position.peakPrice.add(trailingDistance);
+                    if (newSL.compareTo(position.stopLoss) < 0) {
+                        position.stopLoss = newSL;
+                    }
+                } else {
+                    if (current.getHigh().compareTo(position.peakPrice) > 0) {
+                        position.peakPrice = current.getHigh();
+                    }
+                    BigDecimal trailingDistance = position.peakPrice.multiply(BigDecimal.valueOf(params.trailingStopPct / 100.0));
+                    BigDecimal newSL = position.peakPrice.subtract(trailingDistance);
+                    if (newSL.compareTo(position.stopLoss) > 0) {
+                        position.stopLoss = newSL;
+                    }
+                }
+            }
+
+            // 2. Check if open position hit SL or TP
             if (position != null) {
                 boolean closed = false;
                 BigDecimal exitPrice = null;
@@ -79,7 +102,7 @@ public class BacktestEngine {
                 }
             }
 
-            // 2. Evaluate entry signals (only if no open position)
+            // 3. Evaluate entry signals (only if no open position)
             if (position == null) {
                 BigDecimal currentPrice = current.getClose();
                 double rsi = calculator.calculateRSIFromKlines(window);
@@ -90,30 +113,63 @@ public class BacktestEngine {
                 boolean inBuyZone = calculator.isInBuyZone(currentPrice.doubleValue(), sessionLow, sessionHigh, params.killzoneThreshold);
                 boolean inSellZone = calculator.isInSellZone(currentPrice.doubleValue(), sessionLow, sessionHigh, params.killzoneThreshold);
 
+                // Calculate VWAP and EMA for filters
+                int vwapFrom = Math.max(0, window.size() - params.vwapPeriod);
+                BigDecimal vwap = calculator.calculateVWAP(window.subList(vwapFrom, window.size()));
+                double ema9 = calculator.calculateEMAFromKlines(window, params.emaPeriod);
+
                 // LONG entry
                 if (rsi < params.rsiOversold && inBuyZone && momentum > params.minMomentum) {
-                    longSignalCount++;
-                    BigDecimal stopLoss = currentPrice
-                            .multiply(BigDecimal.valueOf(1 - params.stopLossPct / 100.0))
-                            .setScale(8, RoundingMode.HALF_UP);
-                    BigDecimal takeProfit = currentPrice
-                            .multiply(BigDecimal.valueOf(1 + params.takeProfitPct / 100.0))
-                            .setScale(8, RoundingMode.HALF_UP);
+                    boolean passesFilters = true;
+                    if (params.useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
+                        double price = currentPrice.doubleValue();
+                        double vwapVal = vwap.doubleValue();
+                        double upper = vwapVal * (1 + params.vwapBandPct / 100.0);
+                        if (price < vwapVal || price > upper) {
+                            passesFilters = false;
+                        }
+                    }
+                    if (params.useEmaFilter && ema9 > 0 && currentPrice.doubleValue() <= ema9) {
+                        passesFilters = false;
+                    }
+                    if (passesFilters) {
+                        longSignalCount++;
+                        BigDecimal stopLoss = currentPrice
+                                .multiply(BigDecimal.valueOf(1 - params.stopLossPct / 100.0))
+                                .setScale(8, RoundingMode.HALF_UP);
+                        BigDecimal takeProfit = currentPrice
+                                .multiply(BigDecimal.valueOf(1 + params.takeProfitPct / 100.0))
+                                .setScale(8, RoundingMode.HALF_UP);
 
-                    position = new BacktestPosition("LONG", currentPrice, stopLoss, takeProfit, current.getTimestamp());
+                        position = new BacktestPosition("LONG", currentPrice, stopLoss, takeProfit, current.getTimestamp());
+                    }
                 }
 
                 // SHORT entry
                 else if (rsi > params.rsiOverbought && inSellZone && momentum < -params.minMomentum) {
-                    shortSignalCount++;
-                    BigDecimal stopLoss = currentPrice
-                            .multiply(BigDecimal.valueOf(1 + params.stopLossPct / 100.0))
-                            .setScale(8, RoundingMode.HALF_UP);
-                    BigDecimal takeProfit = currentPrice
-                            .multiply(BigDecimal.valueOf(1 - params.takeProfitPct / 100.0))
-                            .setScale(8, RoundingMode.HALF_UP);
+                    boolean passesFilters = true;
+                    if (params.useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
+                        double price = currentPrice.doubleValue();
+                        double vwapVal = vwap.doubleValue();
+                        double lower = vwapVal * (1 - params.vwapBandPct / 100.0);
+                        if (price > vwapVal || price < lower) {
+                            passesFilters = false;
+                        }
+                    }
+                    if (params.useEmaFilter && ema9 > 0 && currentPrice.doubleValue() >= ema9) {
+                        passesFilters = false;
+                    }
+                    if (passesFilters) {
+                        shortSignalCount++;
+                        BigDecimal stopLoss = currentPrice
+                                .multiply(BigDecimal.valueOf(1 + params.stopLossPct / 100.0))
+                                .setScale(8, RoundingMode.HALF_UP);
+                        BigDecimal takeProfit = currentPrice
+                                .multiply(BigDecimal.valueOf(1 - params.takeProfitPct / 100.0))
+                                .setScale(8, RoundingMode.HALF_UP);
 
-                    position = new BacktestPosition("SHORT", currentPrice, stopLoss, takeProfit, current.getTimestamp());
+                        position = new BacktestPosition("SHORT", currentPrice, stopLoss, takeProfit, current.getTimestamp());
+                    }
                 }
             }
         }
@@ -142,23 +198,30 @@ public class BacktestEngine {
     // ============== Inner classes ==============
 
     public static class BacktestParams {
-        public int rsiLength = 5;
+        public int rsiLength = 7;
         public double rsiOversold = 30.0;
         public double rsiOverbought = 70.0;
         public int lookbackBars = 12;
-        public double killzoneThreshold = 1.0;
-        public double minMomentum = 0.8;
-        public double stopLossPct = 1.0;
-        public double takeProfitPct = 3.0;
+        public double killzoneThreshold = 30.0;
+        public double minMomentum = 0.05;
+        public double stopLossPct = 0.6;
+        public double takeProfitPct = 1.2;
+        public boolean useVwapFilter = true;
+        public double vwapBandPct = 0.5;
+        public int vwapPeriod = 20;
+        public boolean useEmaFilter = true;
+        public int emaPeriod = 9;
+        public double trailingStopPct = 0.6;
     }
 
     private static class BacktestPosition {
         final String action;
         final BigDecimal entryPrice;
-        final BigDecimal stopLoss;
+        BigDecimal stopLoss;
         final BigDecimal takeProfit;
         final long entryTimestamp;
         final BigDecimal quantity = BigDecimal.ONE; // simplified
+        BigDecimal peakPrice;
 
         BacktestPosition(String action, BigDecimal entryPrice, BigDecimal stopLoss, BigDecimal takeProfit, long entryTimestamp) {
             this.action = action;
@@ -166,6 +229,7 @@ public class BacktestEngine {
             this.stopLoss = stopLoss;
             this.takeProfit = takeProfit;
             this.entryTimestamp = entryTimestamp;
+            this.peakPrice = entryPrice;
         }
 
         boolean isShort() {

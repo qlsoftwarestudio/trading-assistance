@@ -50,7 +50,7 @@ trading:
     leverage: 5
     enabled: true
     max-concurrent-trades: 2
-    max-hold-minutes: 20
+    max-hold-minutes: 25
     require-rsi-reversal: true
     # Risk Management
     use-atr-stop: false
@@ -58,6 +58,9 @@ trading:
     sl-cooldown-minutes: 10
     use-vwap-filter: true
     vwap-period: 20
+    vwap-band-pct: 0.5
+    use-ema-filter: true
+    ema-period: 9
     atr-period: 10
     atr-multiplier: 1.5
 

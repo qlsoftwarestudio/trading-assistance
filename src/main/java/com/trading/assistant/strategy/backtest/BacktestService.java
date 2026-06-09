@@ -24,7 +24,7 @@ public class BacktestService {
     @Value("${trading.strategy.symbol:HYPEUSDT}")
     private String symbol;
 
-    @Value("${trading.strategy.timeframe:15m}")
+    @Value("${trading.strategy.timeframe:5m}")
     private String timeframe;
 
     @Value("${trading.strategy.rsi-length:5}")
@@ -39,17 +39,29 @@ public class BacktestService {
     @Value("${trading.strategy.lookback-bars:12}")
     private int lookbackBars;
 
-    @Value("${trading.strategy.killzone-threshold:1.0}")
+    @Value("${trading.strategy.killzone-threshold:30.0}")
     private double killzoneThreshold;
 
-    @Value("${trading.strategy.min-momentum:0.8}")
+    @Value("${trading.strategy.min-momentum:0.05}")
     private double minMomentum;
 
-    @Value("${trading.strategy.stop-loss-pct:1.0}")
+    @Value("${trading.strategy.stop-loss-pct:0.6}")
     private double stopLossPct;
 
-    @Value("${trading.strategy.take-profit-pct:3.0}")
+    @Value("${trading.strategy.take-profit-pct:1.2}")
     private double takeProfitPct;
+
+    @Value("${trading.strategy.vwap-band-pct:0.5}")
+    private double vwapBandPct;
+
+    @Value("${trading.strategy.use-ema-filter:true}")
+    private boolean useEmaFilter;
+
+    @Value("${trading.strategy.ema-period:9}")
+    private int emaPeriod;
+
+    @Value("${trading.strategy.trailing-stop-pct:0.6}")
+    private double trailingStopPct;
 
     /**
      * Ejecuta un backtest con los parametros actuales de la estrategia.
@@ -75,6 +87,10 @@ public class BacktestService {
         params.minMomentum = minMomentum;
         params.stopLossPct = stopLossPct;
         params.takeProfitPct = takeProfitPct;
+        params.vwapBandPct = vwapBandPct;
+        params.useEmaFilter = useEmaFilter;
+        params.emaPeriod = emaPeriod;
+        params.trailingStopPct = trailingStopPct;
 
         BacktestEngine engine = new BacktestEngine();
         BacktestResult result = engine.run(symbol, timeframe, klines, params);
@@ -107,6 +123,10 @@ public class BacktestService {
         params.minMomentum = minMomentum;
         params.stopLossPct = stopLossPct;
         params.takeProfitPct = takeProfitPct;
+        params.vwapBandPct = vwapBandPct;
+        params.useEmaFilter = useEmaFilter;
+        params.emaPeriod = emaPeriod;
+        params.trailingStopPct = trailingStopPct;
 
         BacktestEngine engine = new BacktestEngine();
         BacktestResult trainResult = engine.run(symbol, timeframe, trainData, params);

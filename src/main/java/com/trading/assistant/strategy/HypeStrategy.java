@@ -87,6 +87,15 @@ public class HypeStrategy {
     @Value("${trading.strategy.vwap-period:20}")
     private int vwapPeriod;
 
+    @Value("${trading.strategy.vwap-band-pct:0.5}")
+    private double vwapBandPct;
+
+    @Value("${trading.strategy.use-ema-filter:true}")
+    private boolean useEmaFilter;
+
+    @Value("${trading.strategy.ema-period:9}")
+    private int emaPeriod;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -134,8 +143,9 @@ public class HypeStrategy {
             double relativeVolume = indicatorCalculator.calculateRelativeVolume(klines, lookbackBars);
             int vwapFrom = Math.max(0, klines.size() - vwapPeriod);
             BigDecimal vwap = indicatorCalculator.calculateVWAP(klines.subList(vwapFrom, klines.size()));
+            double ema9 = indicatorCalculator.calculateEMAFromKlines(klines, emaPeriod);
 
-            logger.info("Indicators - RSI: {} (prev: {}), Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {}x, VWAP: {}",
+            logger.info("Indicators - RSI: {} (prev: {}), Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {}x, VWAP: {}, EMA{}: {}",
                     String.format("%.2f", rsi),
                     String.format("%.2f", previousRsi),
                     String.format("%.4f", sessionLow),
@@ -146,17 +156,19 @@ public class HypeStrategy {
                     breakoutAbove,
                     breakoutBelow,
                     String.format("%.2f", relativeVolume),
-                    String.format("%.4f", vwap));
+                    String.format("%.4f", vwap),
+                    emaPeriod,
+                    String.format("%.4f", ema9));
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap);
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9);
 
         } catch (Exception e) {
             logger.error("Error executing strategy: {}", e.getMessage(), e);
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap) {
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
@@ -164,6 +176,23 @@ public class HypeStrategy {
         if (meanReversionCondition || breakoutCondition) {
             if (tradeManager.hasOpenPosition("LONG")) {
                 logger.info("LONG position already open. Skipping new LONG signal.");
+                return;
+            }
+
+            // VWAP filter: LONG only between VWAP and VWAP + band%
+            if (useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
+                double price = currentPrice.doubleValue();
+                double vwapVal = vwap.doubleValue();
+                double upper = vwapVal * (1 + vwapBandPct / 100.0);
+                if (price < vwapVal || price > upper) {
+                    logger.info("❌ LONG rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", vwapVal), String.format("%.4f", upper));
+                    return;
+                }
+            }
+
+            // EMA filter: LONG only if price > EMA
+            if (useEmaFilter && ema9 > 0 && currentPrice.doubleValue() <= ema9) {
+                logger.info("❌ LONG rejected: price {} below EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
                 return;
             }
 
@@ -211,7 +240,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap) {
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9) {
         boolean rsiReversingDown = rsi < previousRsi;
         boolean meanReversionCondition = rsi > rsiOverbought && inSellZone && (!requireRsiReversal || rsiReversingDown);
         boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
@@ -219,6 +248,23 @@ public class HypeStrategy {
         if (meanReversionCondition || breakoutCondition) {
             if (tradeManager.hasOpenPosition("SHORT")) {
                 logger.info("SHORT position already open. Skipping new SHORT signal.");
+                return;
+            }
+
+            // VWAP filter: SHORT only between VWAP - band% and VWAP
+            if (useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
+                double price = currentPrice.doubleValue();
+                double vwapVal = vwap.doubleValue();
+                double lower = vwapVal * (1 - vwapBandPct / 100.0);
+                if (price > vwapVal || price < lower) {
+                    logger.info("❌ SHORT rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", vwapVal));
+                    return;
+                }
+            }
+
+            // EMA filter: SHORT only if price < EMA
+            if (useEmaFilter && ema9 > 0 && currentPrice.doubleValue() >= ema9) {
+                logger.info("❌ SHORT rejected: price {} above EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
                 return;
             }
 
