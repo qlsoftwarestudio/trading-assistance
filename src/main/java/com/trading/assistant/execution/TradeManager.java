@@ -73,8 +73,8 @@ public class TradeManager {
     @Value("${trading.strategy.max-hold-minutes:20}")
     private int maxHoldMinutes;
 
-    @Value("${trading.strategy.breakeven-trigger-pct:0.3}")
-    private double breakevenTriggerPct;
+    @Value("${trading.strategy.trailing-stop-pct:0.6}")
+    private double trailingStopPct;
 
     @Value("${trading.strategy.sl-cooldown-minutes:10}")
     private int slCooldownMinutes;
@@ -86,6 +86,7 @@ public class TradeManager {
     private double minNotional;
 
     private final Map<String, LocalDateTime> lastSlTime = new ConcurrentHashMap<>();
+    private final Map<Long, BigDecimal> tradePeakPrices = new ConcurrentHashMap<>();
 
     private boolean isDailyLossLimitHit(BigDecimal balance) {
         try {
@@ -254,6 +255,9 @@ public class TradeManager {
                 trade.setBinanceOrderId(orderId);
                 tradeRepository.save(trade);
 
+                // Initialize trailing stop tracking
+                tradePeakPrices.put(trade.getId(), currentPrice);
+
                 signal.setExecuted(true);
                 signal.setTradeId(trade.getId());
                 signalRepository.save(signal);
@@ -295,24 +299,36 @@ public class TradeManager {
         boolean isShort = "SHORT".equals(trade.getAction());
         LocalDateTime entryTime = trade.getEntryTime();
 
-        // Breakeven: if price moved favorably by breakevenTriggerPct%, move SL to entry
-        if (breakevenTriggerPct > 0 && entryPrice != null && stopLoss != null) {
-            BigDecimal triggerDistance = entryPrice.multiply(BigDecimal.valueOf(breakevenTriggerPct / 100));
+        // Trailing stop: track favorable price movement and raise/lower SL
+        if (trailingStopPct > 0 && entryPrice != null && stopLoss != null) {
+            BigDecimal peak = tradePeakPrices.getOrDefault(trade.getId(), entryPrice);
+            BigDecimal trailingDistance = entryPrice.multiply(BigDecimal.valueOf(trailingStopPct / 100));
+
             if (isShort) {
-                BigDecimal breakevenLevel = entryPrice.subtract(triggerDistance);
-                if (currentPrice.compareTo(breakevenLevel) <= 0 && stopLoss.compareTo(entryPrice) > 0) {
-                    trade.setStopLoss(entryPrice);
+                // For SHORTs, track lowest price (most favorable)
+                if (currentPrice.compareTo(peak) < 0) {
+                    peak = currentPrice;
+                    tradePeakPrices.put(trade.getId(), peak);
+                }
+                BigDecimal newSL = peak.add(trailingDistance);
+                if (newSL.compareTo(stopLoss) < 0) {
+                    trade.setStopLoss(newSL);
                     tradeRepository.save(trade);
-                    logger.info("🔒 Breakeven activated for SHORT Trade {}. SL moved to entry: {}",
-                            trade.getId(), entryPrice);
+                    logger.info("� Trailing stop lowered for SHORT Trade {}. SL: {} (peak: {})",
+                            trade.getId(), newSL, peak);
                 }
             } else {
-                BigDecimal breakevenLevel = entryPrice.add(triggerDistance);
-                if (currentPrice.compareTo(breakevenLevel) >= 0 && stopLoss.compareTo(entryPrice) < 0) {
-                    trade.setStopLoss(entryPrice);
+                // For LONGs, track highest price (most favorable)
+                if (currentPrice.compareTo(peak) > 0) {
+                    peak = currentPrice;
+                    tradePeakPrices.put(trade.getId(), peak);
+                }
+                BigDecimal newSL = peak.subtract(trailingDistance);
+                if (newSL.compareTo(stopLoss) > 0) {
+                    trade.setStopLoss(newSL);
                     tradeRepository.save(trade);
-                    logger.info("🔒 Breakeven activated for LONG Trade {}. SL moved to entry: {}",
-                            trade.getId(), entryPrice);
+                    logger.info("� Trailing stop raised for LONG Trade {}. SL: {} (peak: {})",
+                            trade.getId(), newSL, peak);
                 }
             }
         }
@@ -391,6 +407,8 @@ public class TradeManager {
                     logger.info("⏸️ SL cooldown started for {} - no new {} entries for {} min",
                             trade.getAction(), trade.getAction(), slCooldownMinutes);
                 }
+
+                tradePeakPrices.remove(trade.getId());
 
                 telegramBot.sendTradeNotification(trade, "EXIT");
 

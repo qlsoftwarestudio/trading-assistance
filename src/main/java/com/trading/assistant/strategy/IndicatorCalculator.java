@@ -477,6 +477,33 @@ public class IndicatorCalculator {
         return numerator / denominator;
     }
 
+    // ============== VWAP ==============
+
+    /**
+     * Calculate Volume Weighted Average Price (VWAP) from klines.
+     * VWAP = sum(typical_price * volume) / sum(volume)
+     */
+    public BigDecimal calculateVWAP(List<Kline> klines) {
+        if (klines == null || klines.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal cumulativeTPV = BigDecimal.ZERO;
+        BigDecimal cumulativeVolume = BigDecimal.ZERO;
+        for (Kline k : klines) {
+            BigDecimal typicalPrice = k.getHigh().add(k.getLow()).add(k.getClose())
+                    .divide(BigDecimal.valueOf(3), 8, RoundingMode.HALF_UP);
+            BigDecimal volume = k.getVolume();
+            if (volume.compareTo(BigDecimal.ZERO) > 0) {
+                cumulativeTPV = cumulativeTPV.add(typicalPrice.multiply(volume));
+                cumulativeVolume = cumulativeVolume.add(volume);
+            }
+        }
+        if (cumulativeVolume.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO;
+        }
+        return cumulativeTPV.divide(cumulativeVolume, 8, RoundingMode.HALF_UP);
+    }
+
     // ============== BREAKOUT DETECTION ==============
 
     /**

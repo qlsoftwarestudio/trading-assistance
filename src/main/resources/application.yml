@@ -54,8 +54,9 @@ trading:
     require-rsi-reversal: true
     # Risk Management
     use-atr-stop: false
-    breakeven-trigger-pct: 0.8
+    trailing-stop-pct: 0.6
     sl-cooldown-minutes: 10
+    use-vwap-filter: true
     atr-period: 10
     atr-multiplier: 1.5
 

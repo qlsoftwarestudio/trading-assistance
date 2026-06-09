@@ -77,14 +77,17 @@ public class AdminService {
     @Value("${trading.strategy.max-hold-minutes:20}")
     private int maxHoldMinutes;
 
-    @Value("${trading.strategy.breakeven-trigger-pct:0.6}")
-    private double breakevenTriggerPct;
+    @Value("${trading.strategy.trailing-stop-pct:0.6}")
+    private double trailingStopPct;
 
     @Value("${trading.strategy.sl-cooldown-minutes:10}")
     private int slCooldownMinutes;
 
     @Value("${trading.strategy.require-rsi-reversal:true}")
     private boolean requireRsiReversal;
+
+    @Value("${trading.strategy.use-vwap-filter:true}")
+    private boolean useVwapFilter;
 
     @Value("${trading.context.enabled:true}")
     private boolean contextEnabled;
@@ -135,9 +138,10 @@ public class AdminService {
         config.put("atrMultiplier", atrMultiplier);
         config.put("maxConcurrentTrades", maxConcurrentTrades);
         config.put("maxHoldMinutes", maxHoldMinutes);
-        config.put("breakevenTriggerPct", breakevenTriggerPct);
+        config.put("trailingStopPct", trailingStopPct);
         config.put("slCooldownMinutes", slCooldownMinutes);
         config.put("requireRsiReversal", requireRsiReversal);
+        config.put("useVwapFilter", useVwapFilter);
 
         config.put("contextEnabled", contextEnabled);
         config.put("requireConfluence", requireConfluence);

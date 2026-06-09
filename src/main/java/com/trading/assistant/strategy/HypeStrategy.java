@@ -81,6 +81,9 @@ public class HypeStrategy {
     @Value("${trading.strategy.require-rsi-reversal:true}")
     private boolean requireRsiReversal;
 
+    @Value("${trading.strategy.use-vwap-filter:true}")
+    private boolean useVwapFilter;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -126,8 +129,9 @@ public class HypeStrategy {
             boolean breakoutAbove = indicatorCalculator.isBreakoutAbove(currentPrice.doubleValue(), sessionHigh);
             boolean breakoutBelow = indicatorCalculator.isBreakoutBelow(currentPrice.doubleValue(), sessionLow);
             double relativeVolume = indicatorCalculator.calculateRelativeVolume(klines, lookbackBars);
+            BigDecimal vwap = indicatorCalculator.calculateVWAP(klines);
 
-            logger.info("Indicators - RSI: {} (prev: {}), Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {}x",
+            logger.info("Indicators - RSI: {} (prev: {}), Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {}x, VWAP: {}",
                     String.format("%.2f", rsi),
                     String.format("%.2f", previousRsi),
                     String.format("%.4f", sessionLow),
@@ -137,17 +141,18 @@ public class HypeStrategy {
                     inSellZone,
                     breakoutAbove,
                     breakoutBelow,
-                    String.format("%.2f", relativeVolume));
+                    String.format("%.2f", relativeVolume),
+                    String.format("%.4f", vwap));
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext);
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap);
 
         } catch (Exception e) {
             logger.error("Error executing strategy: {}", e.getMessage(), e);
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx) {
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
@@ -159,6 +164,12 @@ public class HypeStrategy {
             }
 
             // Context filters (skipped when contextEnabled=false)
+            // VWAP filter: only LONG when price is above VWAP
+            if (useVwapFilter && vwap.compareTo(BigDecimal.ZERO) > 0 && currentPrice.compareTo(vwap) <= 0) {
+                logger.info("❌ LONG rejected: price {} below VWAP {}", currentPrice, String.format("%.4f", vwap));
+                return;
+            }
+
             if (contextEnabled && ctx != null) {
                 if (!ctx.supportsLong()) {
                     logger.info("❌ LONG rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
@@ -202,7 +213,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx) {
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap) {
         boolean rsiReversingDown = rsi < previousRsi;
         boolean meanReversionCondition = rsi > rsiOverbought && inSellZone && (!requireRsiReversal || rsiReversingDown);
         boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
@@ -214,6 +225,12 @@ public class HypeStrategy {
             }
 
             // Context filters (skipped when contextEnabled=false)
+            // VWAP filter: only SHORT when price is below VWAP
+            if (useVwapFilter && vwap.compareTo(BigDecimal.ZERO) > 0 && currentPrice.compareTo(vwap) >= 0) {
+                logger.info("❌ SHORT rejected: price {} above VWAP {}", currentPrice, String.format("%.4f", vwap));
+                return;
+            }
+
             if (contextEnabled && ctx != null) {
                 if (!ctx.supportsShort()) {
                     logger.info("❌ SHORT rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
