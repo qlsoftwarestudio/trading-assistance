@@ -168,12 +168,6 @@ public class HypeStrategy {
             }
 
             // Context filters (skipped when contextEnabled=false)
-            // VWAP filter: only LONG when price is above VWAP
-            if (useVwapFilter && vwap.compareTo(BigDecimal.ZERO) > 0 && currentPrice.compareTo(vwap) <= 0) {
-                logger.info("❌ LONG rejected: price {} below VWAP {}", currentPrice, String.format("%.4f", vwap));
-                return;
-            }
-
             if (contextEnabled && ctx != null) {
                 if (!ctx.supportsLong()) {
                     logger.info("❌ LONG rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
@@ -229,12 +223,6 @@ public class HypeStrategy {
             }
 
             // Context filters (skipped when contextEnabled=false)
-            // VWAP filter: only SHORT when price is below VWAP
-            if (useVwapFilter && vwap.compareTo(BigDecimal.ZERO) > 0 && currentPrice.compareTo(vwap) >= 0) {
-                logger.info("❌ SHORT rejected: price {} above VWAP {}", currentPrice, String.format("%.4f", vwap));
-                return;
-            }
-
             if (contextEnabled && ctx != null) {
                 if (!ctx.supportsShort()) {
                     logger.info("❌ SHORT rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
