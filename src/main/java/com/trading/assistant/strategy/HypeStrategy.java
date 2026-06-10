@@ -179,13 +179,14 @@ public class HypeStrategy {
                 return;
             }
 
-            // VWAP filter: LONG only between VWAP and VWAP + band%
+            // VWAP filter: LONG only within VWAP ± band%
             if (useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
                 double price = currentPrice.doubleValue();
                 double vwapVal = vwap.doubleValue();
+                double lower = vwapVal * (1 - vwapBandPct / 100.0);
                 double upper = vwapVal * (1 + vwapBandPct / 100.0);
-                if (price < vwapVal || price > upper) {
-                    logger.info("❌ LONG rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", vwapVal), String.format("%.4f", upper));
+                if (price < lower || price > upper) {
+                    logger.info("❌ LONG rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", upper));
                     return;
                 }
             }
@@ -251,20 +252,21 @@ public class HypeStrategy {
                 return;
             }
 
-            // VWAP filter: SHORT only between VWAP - band% and VWAP
+            // VWAP filter: SHORT only within VWAP ± band%
             if (useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
                 double price = currentPrice.doubleValue();
                 double vwapVal = vwap.doubleValue();
                 double lower = vwapVal * (1 - vwapBandPct / 100.0);
-                if (price > vwapVal || price < lower) {
-                    logger.info("❌ SHORT rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", vwapVal));
+                double upper = vwapVal * (1 + vwapBandPct / 100.0);
+                if (price < lower || price > upper) {
+                    logger.info("❌ SHORT rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", upper));
                     return;
                 }
             }
 
-            // EMA filter: SHORT only if price < EMA
-            if (useEmaFilter && ema9 > 0 && currentPrice.doubleValue() >= ema9) {
-                logger.info("❌ SHORT rejected: price {} above EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
+            // EMA filter: SHORT only if price > EMA (mean-reversion from overbought above EMA)
+            if (useEmaFilter && ema9 > 0 && currentPrice.doubleValue() <= ema9) {
+                logger.info("❌ SHORT rejected: price {} below EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
                 return;
             }
 

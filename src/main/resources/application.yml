@@ -58,7 +58,7 @@ trading:
     sl-cooldown-minutes: 10
     use-vwap-filter: true
     vwap-period: 20
-    vwap-band-pct: 0.5
+    vwap-band-pct: 1.0
     use-ema-filter: true
     ema-period: 9
     atr-period: 10
