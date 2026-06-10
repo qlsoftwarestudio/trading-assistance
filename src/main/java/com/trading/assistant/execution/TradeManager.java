@@ -76,6 +76,9 @@ public class TradeManager {
     @Value("${trading.strategy.trailing-stop-pct:0.6}")
     private double trailingStopPct;
 
+    @Value("${trading.strategy.trailing-activation-pct:0.3}")
+    private double trailingActivationPct;
+
     @Value("${trading.strategy.sl-cooldown-minutes:10}")
     private int slCooldownMinutes;
 
@@ -302,7 +305,7 @@ public class TradeManager {
         LocalDateTime entryTime = trade.getEntryTime();
 
         // Trailing stop: track favorable price movement and raise/lower SL
-        // Distance is dynamic: peak * trailingStopPct (not entryPrice)
+        // Only activates once price moves favorably by at least trailingActivationPct from entry
         if (trailingStopPct > 0 && entryPrice != null && stopLoss != null) {
             BigDecimal peak = tradePeakPrices.getOrDefault(trade.getId(), entryPrice);
 
@@ -334,24 +337,35 @@ public class TradeManager {
                 tradePeakPrices.put(trade.getId(), peak);
             }
 
-            BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(trailingStopPct / 100));
+            // Check activation threshold: only move SL if favorable move >= trailingActivationPct
+            double activationThreshold = entryPrice.doubleValue() * trailingActivationPct / 100.0;
+            double favorableMove = isShort
+                    ? entryPrice.doubleValue() - peak.doubleValue()
+                    : peak.doubleValue() - entryPrice.doubleValue();
 
-            if (isShort) {
-                BigDecimal newSL = peak.add(trailingDistance);
-                if (newSL.compareTo(stopLoss) < 0) {
-                    trade.setStopLoss(newSL);
-                    tradeRepository.save(trade);
-                    logger.info("Trailing stop lowered for SHORT Trade {}. SL: {} (peak: {})",
-                            trade.getId(), newSL, peak);
+            if (favorableMove >= activationThreshold) {
+                BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(trailingStopPct / 100));
+
+                if (isShort) {
+                    BigDecimal newSL = peak.add(trailingDistance);
+                    if (newSL.compareTo(stopLoss) < 0) {
+                        trade.setStopLoss(newSL);
+                        tradeRepository.save(trade);
+                        logger.info("Trailing stop lowered for SHORT Trade {}. SL: {} (peak: {}, move: +{}%)",
+                                trade.getId(), newSL, peak, String.format("%.3f", favorableMove / entryPrice.doubleValue() * 100));
+                    }
+                } else {
+                    BigDecimal newSL = peak.subtract(trailingDistance);
+                    if (newSL.compareTo(stopLoss) > 0) {
+                        trade.setStopLoss(newSL);
+                        tradeRepository.save(trade);
+                        logger.info("Trailing stop raised for LONG Trade {}. SL: {} (peak: {}, move: +{}%)",
+                                trade.getId(), newSL, peak, String.format("%.3f", favorableMove / entryPrice.doubleValue() * 100));
+                    }
                 }
             } else {
-                BigDecimal newSL = peak.subtract(trailingDistance);
-                if (newSL.compareTo(stopLoss) > 0) {
-                    trade.setStopLoss(newSL);
-                    tradeRepository.save(trade);
-                    logger.info("Trailing stop raised for LONG Trade {}. SL: {} (peak: {})",
-                            trade.getId(), newSL, peak);
-                }
+                logger.debug("Trailing stop not yet active for Trade {}. Favorable move: {}% (need {}%)",
+                        trade.getId(), String.format("%.3f", favorableMove / entryPrice.doubleValue() * 100), String.format("%.1f", trailingActivationPct));
             }
         }
         // Time-based exit: close if held longer than maxHoldMinutes

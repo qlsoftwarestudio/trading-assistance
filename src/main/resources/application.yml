@@ -55,6 +55,7 @@ trading:
     # Risk Management
     use-atr-stop: false
     trailing-stop-pct: 0.6
+    trailing-activation-pct: 0.3
     sl-cooldown-minutes: 10
     use-vwap-filter: true
     vwap-period: 20
