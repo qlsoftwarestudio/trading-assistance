@@ -172,7 +172,7 @@ public class HypeStrategy {
     }
 
     private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9) {
-        boolean rsiReversingUp = rsi > previousRsi;
+        boolean rsiReversingUp = rsi > previousRsi || (rsi == 0.0 && previousRsi == 0.0);
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
 
