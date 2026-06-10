@@ -96,6 +96,9 @@ public class HypeStrategy {
     @Value("${trading.strategy.ema-period:9}")
     private int emaPeriod;
 
+    @Value("${trading.strategy.ema-extreme-rsi-threshold:15}")
+    private double emaExtremeRsiThreshold;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -192,9 +195,14 @@ public class HypeStrategy {
             }
 
             // EMA filter: LONG only if price > EMA
-            if (useEmaFilter && ema9 > 0 && currentPrice.doubleValue() <= ema9) {
+            // Exception: skip EMA filter when RSI is extremely oversold (< emaExtremeRsiThreshold)
+            boolean extremeOversold = rsi < emaExtremeRsiThreshold;
+            if (useEmaFilter && ema9 > 0 && !extremeOversold && currentPrice.doubleValue() <= ema9) {
                 logger.info("❌ LONG rejected: price {} below EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
                 return;
+            }
+            if (extremeOversold && currentPrice.doubleValue() <= ema9) {
+                logger.info("⚡ EMA filter bypassed: RSI={} < {} (extreme oversold)", String.format("%.2f", rsi), emaExtremeRsiThreshold);
             }
 
             // Context filters (skipped when contextEnabled=false)
