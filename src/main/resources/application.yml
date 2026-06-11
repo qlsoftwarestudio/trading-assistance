@@ -70,6 +70,9 @@ trading:
     atr-multiplier: 1.5
     use-regression-filter: true
     regression-lookback: 20
+    use-trend-dip-long: true
+    trend-dip-rsi-threshold: 45
+    trend-dip-channel-slope: 0.02
 
   # Market Context / Multi-timeframe Analysis
   context:

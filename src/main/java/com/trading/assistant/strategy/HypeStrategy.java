@@ -122,6 +122,15 @@ public class HypeStrategy {
     @Value("${trading.strategy.regression-lookback:20}")
     private int regressionLookback;
 
+    @Value("${trading.strategy.use-trend-dip-long:true}")
+    private boolean useTrendDipLong;
+
+    @Value("${trading.strategy.trend-dip-rsi-threshold:45}")
+    private double trendDipRsiThreshold;
+
+    @Value("${trading.strategy.trend-dip-channel-slope:0.02}")
+    private double trendDipChannelSlope;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -215,7 +224,16 @@ public class HypeStrategy {
                 && rsiReversingUp;
         boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
 
-        if (meanReversionCondition || breakoutCondition) {
+        // Trend-following dip: buy the pullback within an uptrending regression channel
+        boolean trendDipCondition = useTrendDipLong
+                && channel != null
+                && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP
+                && channel.getSlopePct() >= trendDipChannelSlope
+                && channel.getPricePosition() < 0.40
+                && rsi < trendDipRsiThreshold
+                && (!requireRsiReversal || rsiReversingUp);
+
+        if (meanReversionCondition || breakoutCondition || trendDipCondition) {
             if (tradeManager.hasOpenPosition("LONG")) {
                 logger.info("LONG position already open. Skipping new LONG signal.");
                 return;
@@ -264,10 +282,13 @@ public class HypeStrategy {
                 }
             }
 
-            String entryType = meanReversionCondition ? "Mean-Reversion" : "Breakout";
-            logger.info("🟢 LONG SIGNAL DETECTED ({})! RSI: {} (prev: {}), BuyZone: {}, RevUp: {}, Breakout: {}, Volume: {}x, Momentum: {}",
+            String entryType;
+            if (meanReversionCondition) entryType = "Mean-Reversion";
+            else if (breakoutCondition) entryType = "Breakout";
+            else entryType = "Trend-Dip";
+            logger.info("🟢 LONG SIGNAL DETECTED ({})! RSI: {} (prev: {}), BuyZone: {}, RevUp: {}, Breakout: {}, TrendDip: {}, Volume: {}x, Momentum: {}",
                     entryType, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
-                    inBuyZone, rsiReversingUp, breakoutAbove,
+                    inBuyZone, rsiReversingUp, breakoutAbove, trendDipCondition,
                     String.format("%.2f", relativeVolume), String.format("%.4f", momentum));
 
             Signal signal = new Signal(
@@ -286,7 +307,7 @@ public class HypeStrategy {
             // Bypassed when extreme oversold or volume spike override is active (capitulation event)
             boolean regressionOverride = extremeOversold || volumeSpikeLong;
 
-            if (useRegressionFilter && channel != null && meanReversionCondition) {
+            if (useRegressionFilter && channel != null && (meanReversionCondition || trendDipCondition)) {
                 if (channel.getPricePosition() > 0.65) {
                     if (regressionOverride) {
                         logger.info("⚡ Regression channel bypassed: price at {}% but extreme signal active (oversold={} volSpike={})",
@@ -312,8 +333,12 @@ public class HypeStrategy {
             signalRepository.save(signal);
             tradeManager.executeLongEntry(signal);
         } else {
-            logger.info("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}, RevUp:{}) Breakout(Above:{}, Vol>1:{})",
-                    rsiOversold, rsi < rsiOversold, inBuyZone, rsiReversingUp, breakoutAbove, relativeVolume >= 1.0);
+            logger.info("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}, RevUp:{}) Breakout(Above:{}, Vol>1:{}) TrendDip(channelUp:{}, pos<40%:{}, RSI<{}:{}, RevUp:{})",
+                    rsiOversold, rsi < rsiOversold, inBuyZone, rsiReversingUp, breakoutAbove, relativeVolume >= 1.0,
+                    channel != null && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP && channel.getSlopePct() >= trendDipChannelSlope,
+                    channel != null && channel.getPricePosition() < 0.40,
+                    trendDipRsiThreshold, rsi < trendDipRsiThreshold,
+                    rsiReversingUp);
         }
     }
 
