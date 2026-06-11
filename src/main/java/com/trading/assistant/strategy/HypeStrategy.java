@@ -233,8 +233,7 @@ public class HypeStrategy {
                 && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP
                 && channel.getSlopePct() >= trendDipChannelSlope
                 && channel.getPricePosition() < 0.40
-                && rsi < trendDipRsiThreshold
-                && (!requireRsiReversal || rsiReversingUp);
+                && rsi < trendDipRsiThreshold;
 
         if (meanReversionCondition || breakoutCondition || trendDipCondition) {
             if (tradeManager.hasOpenPosition("LONG")) {
@@ -336,12 +335,11 @@ public class HypeStrategy {
             signalRepository.save(signal);
             tradeManager.executeLongEntry(signal);
         } else {
-            logger.info("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}, RevUp:{}) Breakout(Above:{}, Vol>1:{}) TrendDip(channelUp:{}, pos<40%:{}, RSI<{}:{}, RevUp:{})",
+            logger.info("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}, RevUp:{}) Breakout(Above:{}, Vol>1:{}) TrendDip(channelUp:{}, pos<40%:{}, RSI<{}:{})",
                     rsiOversold, rsi < rsiOversold, inBuyZone, rsiReversingUp, breakoutAbove, relativeVolume >= 1.0,
                     channel != null && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP && channel.getSlopePct() >= trendDipChannelSlope,
                     channel != null && channel.getPricePosition() < 0.40,
-                    trendDipRsiThreshold, rsi < trendDipRsiThreshold,
-                    rsiReversingUp);
+                    trendDipRsiThreshold, rsi < trendDipRsiThreshold);
         }
     }
 
