@@ -209,6 +209,10 @@ public class HypeStrategy {
     private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
+        boolean extremeOversold = rsi < emaExtremeRsiThreshold;
+        boolean volumeSpikeLong = rsi < oversoldSpikeRsiThreshold
+                && relativeVolume >= oversoldSpikeVolumeThreshold
+                && rsiReversingUp;
         boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
 
         if (meanReversionCondition || breakoutCondition) {
@@ -231,7 +235,6 @@ public class HypeStrategy {
 
             // EMA filter: LONG only if price > EMA
             // Exception: skip EMA filter when RSI is extremely oversold (< emaExtremeRsiThreshold)
-            boolean extremeOversold = rsi < emaExtremeRsiThreshold;
             if (useEmaFilter && ema9 > 0 && !extremeOversold && currentPrice.doubleValue() <= ema9) {
                 logger.info("❌ LONG rejected: price {} below EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
                 return;
@@ -242,9 +245,6 @@ public class HypeStrategy {
 
             // Context filters (skipped when contextEnabled=false)
             if (contextEnabled && ctx != null) {
-                boolean volumeSpikeLong = rsi < oversoldSpikeRsiThreshold
-                        && relativeVolume >= oversoldSpikeVolumeThreshold
-                        && rsiReversingUp;
                 if (!ctx.supportsLong() && !volumeSpikeLong) {
                     logger.info("❌ LONG rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
                             ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
@@ -284,10 +284,6 @@ public class HypeStrategy {
 
             // Regression channel filter: for mean-reversion LONG, price should be in lower half of channel
             // Bypassed when extreme oversold or volume spike override is active (capitulation event)
-            boolean volumeSpikeLong = rsi < oversoldSpikeRsiThreshold
-                    && relativeVolume >= oversoldSpikeVolumeThreshold
-                    && rsiReversingUp;
-            boolean extremeOversold = rsi < emaExtremeRsiThreshold;
             boolean regressionOverride = extremeOversold || volumeSpikeLong;
 
             if (useRegressionFilter && channel != null && meanReversionCondition) {
@@ -324,6 +320,10 @@ public class HypeStrategy {
     private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel) {
         boolean rsiReversingDown = rsi < previousRsi;
         boolean meanReversionCondition = rsi > rsiOverbought && inSellZone && (!requireRsiReversal || rsiReversingDown);
+        boolean extremeOverbought = rsi > (100 - emaExtremeRsiThreshold);
+        boolean volumeSpikeShort = rsi > (100 - oversoldSpikeRsiThreshold)
+                && relativeVolume >= oversoldSpikeVolumeThreshold
+                && rsiReversingDown;
         boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
 
         if (meanReversionCondition || breakoutCondition) {
@@ -346,7 +346,6 @@ public class HypeStrategy {
 
             // EMA filter: SHORT only if price > EMA (mean-reversion from overbought above EMA)
             // Exception: skip EMA filter when RSI is extremely overbought (> 100 - emaExtremeRsiThreshold)
-            boolean extremeOverbought = rsi > (100 - emaExtremeRsiThreshold);
             if (useEmaFilter && ema9 > 0 && !extremeOverbought && currentPrice.doubleValue() <= ema9) {
                 logger.info("❌ SHORT rejected: price {} below EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
                 return;
@@ -357,9 +356,6 @@ public class HypeStrategy {
 
             // Context filters (skipped when contextEnabled=false)
             if (contextEnabled && ctx != null) {
-                boolean volumeSpikeShort = rsi > (100 - oversoldSpikeRsiThreshold)
-                        && relativeVolume >= oversoldSpikeVolumeThreshold
-                        && rsiReversingDown;
                 if (!ctx.supportsShort() && !volumeSpikeShort) {
                     logger.info("❌ SHORT rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
                             ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
@@ -399,9 +395,6 @@ public class HypeStrategy {
 
             // Regression channel filter: for mean-reversion SHORT, price should be in upper half of channel
             // Bypassed when extreme overbought or volume spike override is active (blow-off top event)
-            boolean volumeSpikeShort = rsi > (100 - oversoldSpikeRsiThreshold)
-                    && relativeVolume >= oversoldSpikeVolumeThreshold
-                    && rsiReversingDown;
             boolean regressionOverrideShort = extremeOverbought || volumeSpikeShort;
 
             if (useRegressionFilter && channel != null && meanReversionCondition) {
