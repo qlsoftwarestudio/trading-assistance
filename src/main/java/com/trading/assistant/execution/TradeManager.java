@@ -410,12 +410,18 @@ public class TradeManager {
             }
         }
 
+        // Detect if trailing stop adjusted the SL beyond the original fixed/ATR SL
+        boolean slAdjustedByTrailing = isShort
+                ? stopLoss.compareTo(entryPrice) < 0
+                : stopLoss.compareTo(entryPrice) > 0;
+
         // For SHORT: SL is above entry, TP is below entry
         if (isShort) {
             if (currentPrice.compareTo(stopLoss) >= 0) {
-                logger.info("🛑 Stop Loss hit for SHORT Trade {}. Current: {}, SL: {}",
-                        trade.getId(), currentPrice, stopLoss);
-                closeTrade(trade, currentPrice, "STOP_LOSS");
+                String reason = slAdjustedByTrailing ? "TRAILING_STOP" : "STOP_LOSS";
+                logger.info("🛑 {} hit for SHORT Trade {}. Current: {}, SL: {}",
+                        reason, trade.getId(), currentPrice, stopLoss);
+                closeTrade(trade, currentPrice, reason);
                 return;
             }
             if (currentPrice.compareTo(takeProfit) <= 0) {
@@ -426,9 +432,10 @@ public class TradeManager {
             }
         } else {
             if (currentPrice.compareTo(stopLoss) <= 0) {
-                logger.info("🛑 Stop Loss hit for LONG Trade {}. Current: {}, SL: {}",
-                        trade.getId(), currentPrice, stopLoss);
-                closeTrade(trade, currentPrice, "STOP_LOSS");
+                String reason = slAdjustedByTrailing ? "TRAILING_STOP" : "STOP_LOSS";
+                logger.info("🛑 {} hit for LONG Trade {}. Current: {}, SL: {}",
+                        reason, trade.getId(), currentPrice, stopLoss);
+                closeTrade(trade, currentPrice, reason);
                 return;
             }
             if (currentPrice.compareTo(takeProfit) >= 0) {
