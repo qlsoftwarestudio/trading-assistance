@@ -57,6 +57,9 @@ public class IndicatorCalculator {
         if (avgLoss == 0) {
             return 100.0; // No losses means RSI = 100
         }
+        if (avgGain == 0) {
+            return 5.0; // All periods losing — extreme oversold, floor at 5 to avoid RSI=0 anomaly
+        }
 
         double rs = avgGain / avgLoss;
         double rsi = 100.0 - (100.0 / (1.0 + rs));

@@ -50,7 +50,7 @@ trading:
     leverage: 5
     enabled: true
     max-concurrent-trades: 2
-    max-hold-minutes: 25
+    max-hold-minutes: 35
     require-rsi-reversal: true
     # Risk Management
     use-atr-stop: false
@@ -63,6 +63,8 @@ trading:
     use-ema-filter: true
     ema-period: 9
     ema-extreme-rsi-threshold: 15
+    oversold-spike-rsi-threshold: 20
+    oversold-spike-volume-threshold: 2.0
     atr-period: 10
     atr-multiplier: 1.5
 

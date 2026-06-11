@@ -344,23 +344,32 @@ public class TradeManager {
                     : peak.doubleValue() - entryPrice.doubleValue();
 
             if (favorableMove >= activationThreshold) {
-                BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(trailingStopPct / 100));
+                double movePct = favorableMove / entryPrice.doubleValue() * 100.0;
+                double dynamicTrailPct;
+                if (movePct >= 1.0) {
+                    dynamicTrailPct = 0.25;
+                } else if (movePct >= 0.5) {
+                    dynamicTrailPct = 0.4;
+                } else {
+                    dynamicTrailPct = trailingStopPct;
+                }
+                BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(dynamicTrailPct / 100));
 
                 if (isShort) {
                     BigDecimal newSL = peak.add(trailingDistance);
                     if (newSL.compareTo(stopLoss) < 0) {
                         trade.setStopLoss(newSL);
                         tradeRepository.save(trade);
-                        logger.info("Trailing stop lowered for SHORT Trade {}. SL: {} (peak: {}, move: +{}%)",
-                                trade.getId(), newSL, peak, String.format("%.3f", favorableMove / entryPrice.doubleValue() * 100));
+                        logger.info("Trailing stop lowered for SHORT Trade {}. SL: {} (peak: {}, move: +{}%, trail: {}%)",
+                                trade.getId(), newSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct));
                     }
                 } else {
                     BigDecimal newSL = peak.subtract(trailingDistance);
                     if (newSL.compareTo(stopLoss) > 0) {
                         trade.setStopLoss(newSL);
                         tradeRepository.save(trade);
-                        logger.info("Trailing stop raised for LONG Trade {}. SL: {} (peak: {}, move: +{}%)",
-                                trade.getId(), newSL, peak, String.format("%.3f", favorableMove / entryPrice.doubleValue() * 100));
+                        logger.info("Trailing stop raised for LONG Trade {}. SL: {} (peak: {}, move: +{}%, trail: {}%)",
+                                trade.getId(), newSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct));
                     }
                 }
             } else {

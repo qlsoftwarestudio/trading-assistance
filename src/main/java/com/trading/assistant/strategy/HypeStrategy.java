@@ -99,6 +99,12 @@ public class HypeStrategy {
     @Value("${trading.strategy.ema-extreme-rsi-threshold:15}")
     private double emaExtremeRsiThreshold;
 
+    @Value("${trading.strategy.oversold-spike-rsi-threshold:20}")
+    private double oversoldSpikeRsiThreshold;
+
+    @Value("${trading.strategy.oversold-spike-volume-threshold:2.0}")
+    private double oversoldSpikeVolumeThreshold;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -172,7 +178,7 @@ public class HypeStrategy {
     }
 
     private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9) {
-        boolean rsiReversingUp = rsi > previousRsi || (rsi == 0.0 && previousRsi == 0.0);
+        boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
 
@@ -207,10 +213,17 @@ public class HypeStrategy {
 
             // Context filters (skipped when contextEnabled=false)
             if (contextEnabled && ctx != null) {
-                if (!ctx.supportsLong()) {
+                boolean volumeSpikeLong = rsi < oversoldSpikeRsiThreshold
+                        && relativeVolume >= oversoldSpikeVolumeThreshold
+                        && rsiReversingUp;
+                if (!ctx.supportsLong() && !volumeSpikeLong) {
                     logger.info("❌ LONG rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
                             ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
                     return;
+                }
+                if (volumeSpikeLong && !ctx.supportsLong()) {
+                    logger.info("⚡ LONG context override: extreme oversold RSI={} + volume spike {}x (threshold: {}x)",
+                            String.format("%.2f", rsi), String.format("%.2f", relativeVolume), oversoldSpikeVolumeThreshold);
                 }
                 if (requireConfluence && !ctx.isConfluence()) {
                     logger.info("❌ LONG rejected: no trend confluence across timeframes");
