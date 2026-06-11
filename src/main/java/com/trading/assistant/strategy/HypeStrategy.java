@@ -131,6 +131,9 @@ public class HypeStrategy {
     @Value("${trading.strategy.trend-dip-channel-slope:0.02}")
     private double trendDipChannelSlope;
 
+    @Value("${trading.strategy.anti-pump-slope-threshold:0.03}")
+    private double antiPumpSlopeThreshold;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -357,6 +360,15 @@ public class HypeStrategy {
                 return;
             }
 
+            // Anti-pump filter: do not short mean-reversion when regression channel is strongly UP
+            if (useRegressionFilter && meanReversionCondition && channel != null
+                    && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP
+                    && channel.getSlopePct() >= antiPumpSlopeThreshold) {
+                logger.info("❌ SHORT rejected: channel strongly UP (slope: {}%), shorting a pump is dangerous",
+                        String.format("%.3f", channel.getSlopePct()));
+                return;
+            }
+
             // VWAP filter: SHORT only within VWAP ± band%
             if (useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
                 double price = currentPrice.doubleValue();
@@ -448,8 +460,11 @@ public class HypeStrategy {
             signalRepository.save(signal);
             tradeManager.executeShortEntry(signal);
         } else {
-            logger.info("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}, RevDown:{}) Breakout(Below:{}, Vol>1:{})",
-                    rsiOverbought, rsi > rsiOverbought, inSellZone, rsiReversingDown, breakoutBelow, relativeVolume >= 1.0);
+            boolean channelUp = channel != null && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP
+                    && channel.getSlopePct() >= antiPumpSlopeThreshold;
+            logger.info("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}, RevDown:{}) Breakout(Below:{}, Vol>1:{}) AntiPump(channelUP+strongSlope:{}, slope:{}%)",
+                    rsiOverbought, rsi > rsiOverbought, inSellZone, rsiReversingDown, breakoutBelow, relativeVolume >= 1.0,
+                    channelUp, channel != null ? String.format("%.3f", channel.getSlopePct()) : "N/A");
         }
     }
 

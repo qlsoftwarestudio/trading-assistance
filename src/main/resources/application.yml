@@ -73,6 +73,7 @@ trading:
     use-trend-dip-long: true
     trend-dip-rsi-threshold: 45
     trend-dip-channel-slope: 0.02
+    anti-pump-slope-threshold: 0.03
 
   # Market Context / Multi-timeframe Analysis
   context:
