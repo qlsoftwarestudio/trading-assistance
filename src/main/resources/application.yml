@@ -66,6 +66,7 @@ trading:
     oversold-spike-rsi-threshold: 20
     oversold-spike-volume-threshold: 2.0
     atr-period: 10
+    projection-candles-ahead: 6
     atr-multiplier: 1.5
 
   # Market Context / Multi-timeframe Analysis

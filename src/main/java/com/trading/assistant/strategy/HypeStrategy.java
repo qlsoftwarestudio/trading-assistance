@@ -1,6 +1,7 @@
 package com.trading.assistant.strategy;
 
 import com.trading.assistant.binance.BinanceClient;
+import com.trading.assistant.strategy.model.PriceProjection;
 import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.execution.TradeManager;
 import com.trading.assistant.strategy.model.MarketContext;
@@ -105,6 +106,15 @@ public class HypeStrategy {
     @Value("${trading.strategy.oversold-spike-volume-threshold:2.0}")
     private double oversoldSpikeVolumeThreshold;
 
+    @Value("${trading.strategy.atr-period:10}")
+    private int atrPeriodForProjection;
+
+    @Value("${trading.strategy.projection-candles-ahead:6}")
+    private int projectionCandlesAhead;
+
+    @Value("${trading.strategy.take-profit-pct:1.2}")
+    private double takeProfitPctForProjection;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -169,15 +179,21 @@ public class HypeStrategy {
                     emaPeriod,
                     String.format("%.4f", ema9));
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9);
+            PriceProjection projection = indicatorCalculator.calculatePriceProjection(
+                    klines, atrPeriodForProjection, projectionCandlesAhead, takeProfitPctForProjection);
+            if (projection != null) {
+                logger.info("📊 {}", projection.toLogString());
+            }
+
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection);
 
         } catch (Exception e) {
             logger.error("Error executing strategy: {}", e.getMessage(), e);
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9) {
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
@@ -254,6 +270,9 @@ public class HypeStrategy {
             );
 
             enrichSignalWithContext(signal, ctx);
+            if (projection != null) {
+                signal.setProjectionNote(projection.toAlertString());
+            }
             signalRepository.save(signal);
             tradeManager.executeLongEntry(signal);
         } else {
@@ -262,7 +281,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9) {
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection) {
         boolean rsiReversingDown = rsi < previousRsi;
         boolean meanReversionCondition = rsi > rsiOverbought && inSellZone && (!requireRsiReversal || rsiReversingDown);
         boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
@@ -327,6 +346,9 @@ public class HypeStrategy {
             );
 
             enrichSignalWithContext(signal, ctx);
+            if (projection != null) {
+                signal.setProjectionNote(projection.toAlertString());
+            }
             signalRepository.save(signal);
             tradeManager.executeShortEntry(signal);
         } else {

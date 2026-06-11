@@ -1,6 +1,7 @@
 package com.trading.assistant.strategy;
 
 import com.trading.assistant.binance.model.Kline;
+import com.trading.assistant.strategy.model.PriceProjection;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -508,6 +509,36 @@ public class IndicatorCalculator {
     }
 
     // ============== BREAKOUT DETECTION ==============
+
+    // ============== PRICE PROJECTION ==============
+
+    /**
+     * ATR-based price range projection for the next N candles.
+     * Uses sqrt(time) scaling: expected range grows with the square root of the number of candles ahead.
+     * Also checks whether TP targets are reachable within the projected range.
+     */
+    public PriceProjection calculatePriceProjection(List<Kline> klines, int atrPeriod, int candlesAhead, double takeProfitPct) {
+        if (klines == null || klines.size() < atrPeriod + 1) {
+            return null;
+        }
+        double atr = calculateATR(klines, atrPeriod);
+        double currentPrice = getCurrentPriceFromKlines(klines).doubleValue();
+        if (atr <= 0 || currentPrice <= 0) {
+            return null;
+        }
+
+        double projectedRange = atr * Math.sqrt(candlesAhead);
+        double projectedHigh = currentPrice + projectedRange;
+        double projectedLow  = currentPrice - projectedRange;
+
+        double longTP  = currentPrice * (1.0 + takeProfitPct / 100.0);
+        double shortTP = currentPrice * (1.0 - takeProfitPct / 100.0);
+        boolean tpReachableLong  = longTP  <= projectedHigh;
+        boolean tpReachableShort = shortTP >= projectedLow;
+
+        return new PriceProjection(projectedHigh, projectedLow, atr, candlesAhead,
+                tpReachableLong, tpReachableShort);
+    }
 
     /**
      * Check if current price broke above the session high (momentum breakout).

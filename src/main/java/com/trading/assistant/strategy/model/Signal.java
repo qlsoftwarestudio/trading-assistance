@@ -72,6 +72,9 @@ public class Signal {
     @Column(precision = 10, scale = 4)
     private BigDecimal distanceToResistancePct;
 
+    @Transient
+    private String projectionNote;
+
     @PrePersist
     protected void onCreate() {
         generatedAt = LocalDateTime.now();
@@ -170,6 +173,9 @@ public class Signal {
 
     public BigDecimal getDistanceToResistancePct() { return distanceToResistancePct; }
     public void setDistanceToResistancePct(BigDecimal distanceToResistancePct) { this.distanceToResistancePct = distanceToResistancePct; }
+
+    public String getProjectionNote() { return projectionNote; }
+    public void setProjectionNote(String projectionNote) { this.projectionNote = projectionNote; }
 
     @Override
     public String toString() {

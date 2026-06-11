@@ -6,6 +6,7 @@ import com.trading.assistant.notification.TelegramBot;
 import com.trading.assistant.portfolio.model.Trade;
 import com.trading.assistant.portfolio.repository.TradeRepository;
 import com.trading.assistant.strategy.IndicatorCalculator;
+import com.trading.assistant.strategy.model.PriceProjection;
 import com.trading.assistant.strategy.model.Signal;
 import com.trading.assistant.strategy.repository.SignalRepository;
 import org.slf4j.Logger;
@@ -87,6 +88,9 @@ public class TradeManager {
 
     @Value("${trading.risk.min-notional:5.0}")
     private double minNotional;
+
+    @Value("${trading.strategy.projection-candles-ahead:6}")
+    private int projectionCandlesAhead;
 
     private final Map<String, LocalDateTime> lastSlTime = new ConcurrentHashMap<>();
     private final Map<Long, BigDecimal> tradePeakPrices = new ConcurrentHashMap<>();
@@ -267,6 +271,10 @@ public class TradeManager {
 
                 telegramBot.sendTradeNotification(trade, "ENTRY");
 
+                if (signal.getProjectionNote() != null && !signal.getProjectionNote().isEmpty()) {
+                    telegramBot.sendAlert("Proyección de precio", signal.getProjectionNote());
+                }
+
                 logger.info("✅ {} trade executed successfully. Trade ID: {}, Order ID: {}",
                         action, trade.getId(), orderId);
             } else {
@@ -285,11 +293,14 @@ public class TradeManager {
         try {
             List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
             BigDecimal currentPrice = binanceClient.getCurrentPrice();
-            List<Kline> klines = binanceClient.getKlines(symbol, "5m", 1);
-            Kline currentKline = (klines != null && !klines.isEmpty()) ? klines.get(0) : null;
+            List<Kline> klines = binanceClient.getKlines(symbol, "5m", atrPeriod + 5);
+            Kline currentKline = (klines != null && !klines.isEmpty()) ? klines.get(klines.size() - 1) : null;
+
+            PriceProjection projection = indicatorCalculator.calculatePriceProjection(
+                    klines, atrPeriod, projectionCandlesAhead, takeProfitPct);
 
             for (Trade trade : openTrades) {
-                checkAndCloseTrade(trade, currentPrice, currentKline);
+                checkAndCloseTrade(trade, currentPrice, currentKline, projection);
             }
 
         } catch (Exception e) {
@@ -297,16 +308,27 @@ public class TradeManager {
         }
     }
 
-    private void checkAndCloseTrade(Trade trade, BigDecimal currentPrice, Kline currentKline) {
+    private void checkAndCloseTrade(Trade trade, BigDecimal currentPrice, Kline currentKline, PriceProjection projection) {
         BigDecimal entryPrice = trade.getEntryPrice();
         BigDecimal stopLoss = trade.getStopLoss();
         BigDecimal takeProfit = trade.getTakeProfit();
         boolean isShort = "SHORT".equals(trade.getAction());
         LocalDateTime entryTime = trade.getEntryTime();
 
+        // Trailing stop: skip if TP is projected reachable within ATR range (let trade run freely to TP)
+        // Only activate trailing when volatility is too low to reach TP (capture partial gains instead)
+        boolean tpReachable = projection != null &&
+                (isShort ? projection.isTpReachableShort() : projection.isTpReachableLong());
+        if (tpReachable) {
+            logger.debug("Trade {}: TP within ATR range [{}–{}] — trailing stop bypassed, running to TP",
+                    trade.getId(),
+                    String.format("%.4f", projection.getProjectedLow()),
+                    String.format("%.4f", projection.getProjectedHigh()));
+        }
+
         // Trailing stop: track favorable price movement and raise/lower SL
         // Only activates once price moves favorably by at least trailingActivationPct from entry
-        if (trailingStopPct > 0 && entryPrice != null && stopLoss != null) {
+        if (!tpReachable && trailingStopPct > 0 && entryPrice != null && stopLoss != null) {
             BigDecimal peak = tradePeakPrices.getOrDefault(trade.getId(), entryPrice);
 
             // Update peak with current kline high/low to catch intrabar moves
