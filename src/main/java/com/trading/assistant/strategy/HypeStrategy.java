@@ -283,11 +283,23 @@ public class HypeStrategy {
             );
 
             // Regression channel filter: for mean-reversion LONG, price should be in lower half of channel
+            // Bypassed when extreme oversold or volume spike override is active (capitulation event)
+            boolean volumeSpikeLong = rsi < oversoldSpikeRsiThreshold
+                    && relativeVolume >= oversoldSpikeVolumeThreshold
+                    && rsiReversingUp;
+            boolean extremeOversold = rsi < emaExtremeRsiThreshold;
+            boolean regressionOverride = extremeOversold || volumeSpikeLong;
+
             if (useRegressionFilter && channel != null && meanReversionCondition) {
                 if (channel.getPricePosition() > 0.65) {
-                    logger.info("❌ LONG rejected: price at {}% of regression channel (upper zone, need <65%)",
-                            String.format("%.0f", channel.getPricePosition() * 100));
-                    return;
+                    if (regressionOverride) {
+                        logger.info("⚡ Regression channel bypassed: price at {}% but extreme signal active (oversold={} volSpike={})",
+                                String.format("%.0f", channel.getPricePosition() * 100), extremeOversold, volumeSpikeLong);
+                    } else {
+                        logger.info("❌ LONG rejected: price at {}% of regression channel (upper zone, need <65%)",
+                                String.format("%.0f", channel.getPricePosition() * 100));
+                        return;
+                    }
                 }
                 if (channel.getPricePosition() > 0.5) {
                     logger.info("⚠️ LONG warning: price at {}% of regression channel (mid-upper zone)",
@@ -333,17 +345,29 @@ public class HypeStrategy {
             }
 
             // EMA filter: SHORT only if price > EMA (mean-reversion from overbought above EMA)
-            if (useEmaFilter && ema9 > 0 && currentPrice.doubleValue() <= ema9) {
+            // Exception: skip EMA filter when RSI is extremely overbought (> 100 - emaExtremeRsiThreshold)
+            boolean extremeOverbought = rsi > (100 - emaExtremeRsiThreshold);
+            if (useEmaFilter && ema9 > 0 && !extremeOverbought && currentPrice.doubleValue() <= ema9) {
                 logger.info("❌ SHORT rejected: price {} below EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
                 return;
+            }
+            if (extremeOverbought && currentPrice.doubleValue() <= ema9) {
+                logger.info("⚡ EMA filter bypassed: RSI={} > {} (extreme overbought)", String.format("%.2f", rsi), (100 - emaExtremeRsiThreshold));
             }
 
             // Context filters (skipped when contextEnabled=false)
             if (contextEnabled && ctx != null) {
-                if (!ctx.supportsShort()) {
+                boolean volumeSpikeShort = rsi > (100 - oversoldSpikeRsiThreshold)
+                        && relativeVolume >= oversoldSpikeVolumeThreshold
+                        && rsiReversingDown;
+                if (!ctx.supportsShort() && !volumeSpikeShort) {
                     logger.info("❌ SHORT rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
                             ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
                     return;
+                }
+                if (volumeSpikeShort && !ctx.supportsShort()) {
+                    logger.info("⚡ SHORT context override: extreme overbought RSI={} + volume spike {}x (threshold: {}x)",
+                            String.format("%.2f", rsi), String.format("%.2f", relativeVolume), oversoldSpikeVolumeThreshold);
                 }
                 if (requireConfluence && !ctx.isConfluence()) {
                     logger.info("❌ SHORT rejected: no trend confluence across timeframes");
@@ -374,11 +398,22 @@ public class HypeStrategy {
             );
 
             // Regression channel filter: for mean-reversion SHORT, price should be in upper half of channel
+            // Bypassed when extreme overbought or volume spike override is active (blow-off top event)
+            boolean volumeSpikeShort = rsi > (100 - oversoldSpikeRsiThreshold)
+                    && relativeVolume >= oversoldSpikeVolumeThreshold
+                    && rsiReversingDown;
+            boolean regressionOverrideShort = extremeOverbought || volumeSpikeShort;
+
             if (useRegressionFilter && channel != null && meanReversionCondition) {
                 if (channel.getPricePosition() < 0.35) {
-                    logger.info("❌ SHORT rejected: price at {}% of regression channel (lower zone, need >35%)",
-                            String.format("%.0f", channel.getPricePosition() * 100));
-                    return;
+                    if (regressionOverrideShort) {
+                        logger.info("⚡ Regression channel bypassed: price at {}% but extreme signal active (overbought={} volSpike={})",
+                                String.format("%.0f", channel.getPricePosition() * 100), extremeOverbought, volumeSpikeShort);
+                    } else {
+                        logger.info("❌ SHORT rejected: price at {}% of regression channel (lower zone, need >35%)",
+                                String.format("%.0f", channel.getPricePosition() * 100));
+                        return;
+                    }
                 }
                 if (channel.getPricePosition() < 0.5) {
                     logger.info("⚠️ SHORT warning: price at {}% of regression channel (mid-lower zone)",

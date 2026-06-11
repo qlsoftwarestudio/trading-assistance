@@ -382,7 +382,7 @@ public class TradeManager {
                     if (newSL.compareTo(stopLoss) < 0) {
                         trade.setStopLoss(newSL);
                         tradeRepository.save(trade);
-                        logger.info("Trailing stop lowered for SHORT Trade {}. SL: {} (peak: {}, move: +{}%, trail: {}%)",
+                        logger.info("Trailing stop tightened for SHORT Trade {}. SL: {} (peak: {}, favorable move: -{}%, trail: {}%)",
                                 trade.getId(), newSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct));
                     }
                 } else {
