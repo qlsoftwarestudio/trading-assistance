@@ -1,6 +1,7 @@
 package com.trading.assistant.strategy;
 
 import com.trading.assistant.binance.model.Kline;
+import com.trading.assistant.strategy.model.LinearRegressionChannel;
 import com.trading.assistant.strategy.model.PriceProjection;
 import org.springframework.stereotype.Component;
 
@@ -509,6 +510,70 @@ public class IndicatorCalculator {
     }
 
     // ============== BREAKOUT DETECTION ==============
+
+    // ============== LINEAR REGRESSION CHANNEL ==============
+
+    /**
+     * Calculate a linear regression channel over the last N closes.
+     * Uses ordinary least squares: y = slope*x + intercept
+     * Channel bands = regression line ± 1 standard deviation of residuals.
+     * pricePosition: 0.0 = price at lower band, 1.0 = at upper band.
+     */
+    public LinearRegressionChannel calculateLinearRegressionChannel(
+            List<Kline> klines, int lookbackBars, int candlesAhead) {
+        int n = Math.min(lookbackBars, klines.size());
+        if (n < 5) {
+            return null;
+        }
+
+        int startIdx = klines.size() - n;
+        double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+        for (int i = 0; i < n; i++) {
+            double x = i;
+            double y = klines.get(startIdx + i).getClose().doubleValue();
+            sumX  += x;
+            sumY  += y;
+            sumXY += x * y;
+            sumX2 += x * x;
+        }
+
+        double denom = n * sumX2 - sumX * sumX;
+        if (denom == 0) {
+            return null;
+        }
+        double slope     = (n * sumXY - sumX * sumY) / denom;
+        double intercept = (sumY - slope * sumX) / n;
+
+        double sumResiduals2 = 0;
+        for (int i = 0; i < n; i++) {
+            double y    = klines.get(startIdx + i).getClose().doubleValue();
+            double yHat = intercept + slope * i;
+            double res  = y - yHat;
+            sumResiduals2 += res * res;
+        }
+        double stddev = Math.sqrt(sumResiduals2 / n);
+
+        double midline          = intercept + slope * (n - 1);
+        double upperBand        = midline + stddev;
+        double lowerBand        = midline - stddev;
+        double projectedMidline = intercept + slope * (n - 1 + candlesAhead);
+        double channelWidthPct  = midline > 0 ? (upperBand - lowerBand) / midline * 100.0 : 0.0;
+
+        double currentPrice = getCurrentPriceFromKlines(klines).doubleValue();
+        double pricePosition = (upperBand - lowerBand) > 0
+                ? (currentPrice - lowerBand) / (upperBand - lowerBand)
+                : 0.5;
+        pricePosition = Math.max(0.0, Math.min(1.0, pricePosition));
+
+        double slopePct = midline > 0 ? slope / midline * 100.0 : 0.0;
+        LinearRegressionChannel.ChannelDirection direction;
+        if      (slopePct >  0.015) direction = LinearRegressionChannel.ChannelDirection.UP;
+        else if (slopePct < -0.015) direction = LinearRegressionChannel.ChannelDirection.DOWN;
+        else                        direction = LinearRegressionChannel.ChannelDirection.SIDEWAYS;
+
+        return new LinearRegressionChannel(slope, slopePct, midline, upperBand, lowerBand,
+                projectedMidline, channelWidthPct, pricePosition, direction, n);
+    }
 
     // ============== PRICE PROJECTION ==============
 

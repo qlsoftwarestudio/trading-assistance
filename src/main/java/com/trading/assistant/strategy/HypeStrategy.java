@@ -1,6 +1,7 @@
 package com.trading.assistant.strategy;
 
 import com.trading.assistant.binance.BinanceClient;
+import com.trading.assistant.strategy.model.LinearRegressionChannel;
 import com.trading.assistant.strategy.model.PriceProjection;
 import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.execution.TradeManager;
@@ -115,6 +116,12 @@ public class HypeStrategy {
     @Value("${trading.strategy.take-profit-pct:1.2}")
     private double takeProfitPctForProjection;
 
+    @Value("${trading.strategy.use-regression-filter:true}")
+    private boolean useRegressionFilter;
+
+    @Value("${trading.strategy.regression-lookback:20}")
+    private int regressionLookback;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -185,15 +192,21 @@ public class HypeStrategy {
                 logger.info("📊 {}", projection.toLogString());
             }
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection);
+            LinearRegressionChannel channel = indicatorCalculator.calculateLinearRegressionChannel(
+                    klines, regressionLookback, projectionCandlesAhead);
+            if (channel != null) {
+                logger.info("{}", channel.toLogString());
+            }
+
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel);
 
         } catch (Exception e) {
             logger.error("Error executing strategy: {}", e.getMessage(), e);
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection) {
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
@@ -269,10 +282,25 @@ public class HypeStrategy {
                     inSellZone
             );
 
-            enrichSignalWithContext(signal, ctx);
-            if (projection != null) {
-                signal.setProjectionNote(projection.toAlertString());
+            // Regression channel filter: for mean-reversion LONG, price should be in lower half of channel
+            if (useRegressionFilter && channel != null && meanReversionCondition) {
+                if (channel.getPricePosition() > 0.65) {
+                    logger.info("❌ LONG rejected: price at {}% of regression channel (upper zone, need <65%)",
+                            String.format("%.0f", channel.getPricePosition() * 100));
+                    return;
+                }
+                if (channel.getPricePosition() > 0.5) {
+                    logger.info("⚠️ LONG warning: price at {}% of regression channel (mid-upper zone)",
+                            String.format("%.0f", channel.getPricePosition() * 100));
+                }
             }
+
+            enrichSignalWithContext(signal, ctx);
+            String note = projection != null ? projection.toAlertString() : "";
+            if (channel != null) {
+                note = note + (note.isEmpty() ? "" : "\n\n") + channel.toAlertString();
+            }
+            if (!note.isEmpty()) signal.setProjectionNote(note);
             signalRepository.save(signal);
             tradeManager.executeLongEntry(signal);
         } else {
@@ -281,7 +309,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection) {
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel) {
         boolean rsiReversingDown = rsi < previousRsi;
         boolean meanReversionCondition = rsi > rsiOverbought && inSellZone && (!requireRsiReversal || rsiReversingDown);
         boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
@@ -345,10 +373,25 @@ public class HypeStrategy {
                     inSellZone
             );
 
-            enrichSignalWithContext(signal, ctx);
-            if (projection != null) {
-                signal.setProjectionNote(projection.toAlertString());
+            // Regression channel filter: for mean-reversion SHORT, price should be in upper half of channel
+            if (useRegressionFilter && channel != null && meanReversionCondition) {
+                if (channel.getPricePosition() < 0.35) {
+                    logger.info("❌ SHORT rejected: price at {}% of regression channel (lower zone, need >35%)",
+                            String.format("%.0f", channel.getPricePosition() * 100));
+                    return;
+                }
+                if (channel.getPricePosition() < 0.5) {
+                    logger.info("⚠️ SHORT warning: price at {}% of regression channel (mid-lower zone)",
+                            String.format("%.0f", channel.getPricePosition() * 100));
+                }
             }
+
+            enrichSignalWithContext(signal, ctx);
+            String note = projection != null ? projection.toAlertString() : "";
+            if (channel != null) {
+                note = note + (note.isEmpty() ? "" : "\n\n") + channel.toAlertString();
+            }
+            if (!note.isEmpty()) signal.setProjectionNote(note);
             signalRepository.save(signal);
             tradeManager.executeShortEntry(signal);
         } else {

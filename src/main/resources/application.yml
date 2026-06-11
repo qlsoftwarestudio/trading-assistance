@@ -68,6 +68,8 @@ trading:
     atr-period: 10
     projection-candles-ahead: 6
     atr-multiplier: 1.5
+    use-regression-filter: true
+    regression-lookback: 20
 
   # Market Context / Multi-timeframe Analysis
   context:
