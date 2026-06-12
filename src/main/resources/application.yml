@@ -74,6 +74,7 @@ trading:
     trend-dip-rsi-threshold: 45
     trend-dip-channel-slope: 0.02
     anti-pump-slope-threshold: 0.03
+    anti-crash-slope-threshold: 0.03
     # Short-in-uptrend protection: require higher RSI + higher volume when shorting into uptrend
     rsi-overbought-uptrend: 85
     short-min-volume-uptrend: 2.0

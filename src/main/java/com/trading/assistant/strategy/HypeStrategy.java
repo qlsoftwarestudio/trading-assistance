@@ -134,6 +134,9 @@ public class HypeStrategy {
     @Value("${trading.strategy.anti-pump-slope-threshold:0.03}")
     private double antiPumpSlopeThreshold;
 
+    @Value("${trading.strategy.anti-crash-slope-threshold:0.03}")
+    private double antiCrashSlopeThreshold;
+
     @Value("${trading.strategy.rsi-overbought-uptrend:85}")
     private double rsiOverboughtUptrend;
 
@@ -335,6 +338,23 @@ public class HypeStrategy {
                 }
             }
 
+            // Anti-Crash filter: do not buy when regression channel is strongly DOWN
+            boolean channelDown = useRegressionFilter && channel != null
+                    && channel.getDirection() == LinearRegressionChannel.ChannelDirection.DOWN
+                    && channel.getSlopePct() <= -antiCrashSlopeThreshold;
+            if (channelDown && !extremeOversold) {
+                logger.info("❌ LONG rejected: channel strongly DOWN (slope: {}%), buying a crash is dangerous",
+                        String.format("%.3f", channel.getSlopePct()));
+                return;
+            }
+
+            // Trend-Dip in downtrend filter: avoid dip-buying when daily trend is DOWN
+            if (trendDipCondition && ctx != null && ctx.getTrend1d() == MarketContext.TrendDirection.DOWN) {
+                logger.info("❌ LONG rejected: trend1d is DOWN, avoiding dip-buying in bearish daily (RSI: {})",
+                        String.format("%.2f", rsi));
+                return;
+            }
+
             enrichSignalWithContext(signal, ctx);
             String note = projection != null ? projection.toAlertString() : "";
             if (channel != null) {
@@ -344,11 +364,16 @@ public class HypeStrategy {
             signalRepository.save(signal);
             tradeManager.executeLongEntry(signal);
         } else {
-            logger.info("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}, RevUp:{}) Breakout(Above:{}, Vol>1:{}) TrendDip(channelUp:{}, pos<40%:{}, RSI<{}:{})",
+            boolean channelDownReject = useRegressionFilter && channel != null
+                    && channel.getDirection() == LinearRegressionChannel.ChannelDirection.DOWN
+                    && channel.getSlopePct() <= -antiCrashSlopeThreshold;
+            boolean trend1dDownReject = ctx != null && ctx.getTrend1d() == MarketContext.TrendDirection.DOWN;
+            logger.info("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}, RevUp:{}) Breakout(Above:{}, Vol>1:{}) TrendDip(channelUp:{}, pos<40%:{}, RSI<{}:{}, t1dDown:{}) AntiCrash(channelDown:{})",
                     rsiOversold, rsi < rsiOversold, inBuyZone, rsiReversingUp, breakoutAbove, relativeVolume >= 1.0,
                     channel != null && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP && channel.getSlopePct() >= trendDipChannelSlope,
                     channel != null && channel.getPricePosition() < 0.40,
-                    trendDipRsiThreshold, rsi < trendDipRsiThreshold);
+                    trendDipRsiThreshold, rsi < trendDipRsiThreshold, trend1dDownReject,
+                    channelDownReject);
         }
     }
 
