@@ -40,6 +40,9 @@ public class Trade {
     private BigDecimal stopLoss;
 
     @Column(precision = 20, scale = 8)
+    private BigDecimal originalStopLoss;
+
+    @Column(precision = 20, scale = 8)
     private BigDecimal takeProfit;
 
     @Column(precision = 20, scale = 8)
@@ -87,6 +90,7 @@ public class Trade {
         this.quantity = quantity;
         this.investedAmount = investedAmount;
         this.stopLoss = stopLoss;
+        this.originalStopLoss = stopLoss;
         this.takeProfit = takeProfit;
         this.entryTime = LocalDateTime.now();
         this.status = "OPEN";
@@ -123,6 +127,9 @@ public class Trade {
 
     public BigDecimal getStopLoss() { return stopLoss; }
     public void setStopLoss(BigDecimal stopLoss) { this.stopLoss = stopLoss; }
+
+    public BigDecimal getOriginalStopLoss() { return originalStopLoss; }
+    public void setOriginalStopLoss(BigDecimal originalStopLoss) { this.originalStopLoss = originalStopLoss; }
 
     public BigDecimal getTakeProfit() { return takeProfit; }
     public void setTakeProfit(BigDecimal takeProfit) { this.takeProfit = takeProfit; }

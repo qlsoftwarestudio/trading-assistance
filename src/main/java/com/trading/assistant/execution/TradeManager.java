@@ -411,9 +411,8 @@ public class TradeManager {
         }
 
         // Detect if trailing stop adjusted the SL beyond the original fixed/ATR SL
-        boolean slAdjustedByTrailing = isShort
-                ? stopLoss.compareTo(entryPrice) < 0
-                : stopLoss.compareTo(entryPrice) > 0;
+        boolean slAdjustedByTrailing = trade.getOriginalStopLoss() != null
+                && trade.getOriginalStopLoss().compareTo(stopLoss) != 0;
 
         // For SHORT: SL is above entry, TP is below entry
         if (isShort) {
