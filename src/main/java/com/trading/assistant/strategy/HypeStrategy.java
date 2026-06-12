@@ -517,7 +517,7 @@ public class HypeStrategy {
         executeStrategy();
     }
 
-    @Scheduled(fixedRate = 30000)
+    @Scheduled(fixedRate = 10000)
     public void monitorOpenTrades() {
         if (!strategyEnabled) {
             return;
