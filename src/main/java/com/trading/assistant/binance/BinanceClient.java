@@ -338,14 +338,14 @@ public class BinanceClient {
     // ============== CONDITIONAL ORDERS ==============
 
     public String placeStopLossOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice) {
-        return placeConditionalOrder(side, positionSide, quantity, stopPrice, "STOP_MARKET");
+        return placeConditionalOrder(side, positionSide, stopPrice, "STOP_MARKET");
     }
 
     public String placeTakeProfitOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice) {
-        return placeConditionalOrder(side, positionSide, quantity, stopPrice, "TAKE_PROFIT_MARKET");
+        return placeConditionalOrder(side, positionSide, stopPrice, "TAKE_PROFIT_MARKET");
     }
 
-    private String placeConditionalOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice, String type) {
+    private String placeConditionalOrder(String side, String positionSide, BigDecimal stopPrice, String type) {
         if (!configured) {
             logger.info("DEMO MODE: Would place {} {} order at {}", type, side, stopPrice);
             return "DEMO_ORDER_" + System.currentTimeMillis();
@@ -358,22 +358,31 @@ public class BinanceClient {
                 params.put("positionSide", positionSide);
             }
             params.put("type", type);
-            params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
+            params.put("closePosition", "true");
             params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
-            params.put("timeInForce", "GTC");
 
             String query = buildSignedQuery(params);
             String response = webClient.post()
                     .uri("/fapi/v1/order?" + query)
                     .header("X-MBX-APIKEY", apiKey)
                     .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body ->
+                            logger.error("Binance 4xx placing {} ({}): {}", type, clientResponse.statusCode(), body)
+                        ).then(clientResponse.createException())
+                    )
+                    .onStatus(status -> status.is5xxServerError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body ->
+                            logger.error("Binance 5xx placing {} ({}): {}", type, clientResponse.statusCode(), body)
+                        ).then(clientResponse.createException())
+                    )
                     .bodyToMono(String.class)
                     .block();
 
             logger.info("{} order placed: {}", type, response);
             return extractOrderId(response);
         } catch (Exception e) {
-            logger.error("Error placing {} order: {}", type, e.getMessage());
+            logger.error("Error placing {} order: {}", type, e.getMessage(), e);
             return null;
         }
     }

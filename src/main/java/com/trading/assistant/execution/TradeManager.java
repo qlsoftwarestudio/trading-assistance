@@ -433,22 +433,27 @@ public class TradeManager {
 
     private void updateBinanceStopLossOrder(Trade trade) {
         try {
-            if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().isEmpty()) {
-                boolean cancelled = binanceClient.cancelOrder(trade.getStopLossOrderId());
-                if (!cancelled) {
-                    logger.warn("Failed to cancel old SL order {} for Trade {}", trade.getStopLossOrderId(), trade.getId());
-                }
-            }
+            String oldSlOrderId = trade.getStopLossOrderId();
             boolean isLong = "LONG".equals(trade.getAction());
             String slSide = isLong ? "SELL" : "BUY";
             String positionSide = isLong ? "LONG" : "SHORT";
+
+            // 1. Place NEW SL order FIRST (never leave trade unprotected)
             String newSlOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, trade.getQuantity(), trade.getStopLoss());
             if (newSlOrderId != null) {
                 trade.setStopLossOrderId(newSlOrderId);
                 tradeRepository.save(trade);
                 logger.info("Updated Binance SL order for Trade {}: new orderId={}", trade.getId(), newSlOrderId);
+
+                // 2. Only cancel OLD order after new one is confirmed
+                if (oldSlOrderId != null && !oldSlOrderId.isEmpty()) {
+                    boolean cancelled = binanceClient.cancelOrder(oldSlOrderId);
+                    if (!cancelled) {
+                        logger.warn("Failed to cancel old SL order {} for Trade {} — harmless, new SL is active", oldSlOrderId, trade.getId());
+                    }
+                }
             } else {
-                logger.error("Failed to place new SL order for Trade {}", trade.getId());
+                logger.error("CRITICAL: Failed to place new SL order for Trade {}. Old SL still active: {}", trade.getId(), oldSlOrderId);
             }
         } catch (Exception e) {
             logger.error("Error updating Binance SL order for Trade {}: {}", trade.getId(), e.getMessage());
