@@ -63,6 +63,12 @@ public class Trade {
     @Column(length = 100)
     private String binanceOrderId;
 
+    @Column(length = 100)
+    private String stopLossOrderId;
+
+    @Column(length = 100)
+    private String takeProfitOrderId;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -151,6 +157,12 @@ public class Trade {
 
     public String getBinanceOrderId() { return binanceOrderId; }
     public void setBinanceOrderId(String binanceOrderId) { this.binanceOrderId = binanceOrderId; }
+
+    public String getStopLossOrderId() { return stopLossOrderId; }
+    public void setStopLossOrderId(String stopLossOrderId) { this.stopLossOrderId = stopLossOrderId; }
+
+    public String getTakeProfitOrderId() { return takeProfitOrderId; }
+    public void setTakeProfitOrderId(String takeProfitOrderId) { this.takeProfitOrderId = takeProfitOrderId; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

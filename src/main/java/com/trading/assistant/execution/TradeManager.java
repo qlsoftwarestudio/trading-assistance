@@ -277,6 +277,25 @@ public class TradeManager {
                 // Initialize trailing stop tracking
                 tradePeakPrices.put(trade.getId(), currentPrice);
 
+                // Place conditional SL and TP orders on Binance (server-side execution)
+                String slSide = isLong ? "SELL" : "BUY";
+                String tpSide = isLong ? "SELL" : "BUY";
+                String positionSide = isLong ? "LONG" : "SHORT";
+
+                String slOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, quantity, stopLoss);
+                String tpOrderId = binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, takeProfit);
+
+                if (slOrderId != null && tpOrderId != null) {
+                    trade.setStopLossOrderId(slOrderId);
+                    trade.setTakeProfitOrderId(tpOrderId);
+                    tradeRepository.save(trade);
+                    logger.info("🔗 Conditional orders placed for Trade {}: SL order={}, TP order={}",
+                            trade.getId(), slOrderId, tpOrderId);
+                } else {
+                    logger.warn("⚠️ Failed to place conditional orders for Trade {}. SL={}, TP={}",
+                            trade.getId(), slOrderId, tpOrderId);
+                }
+
                 signal.setExecuted(true);
                 signal.setTradeId(trade.getId());
                 signalRepository.save(signal);
@@ -299,213 +318,231 @@ public class TradeManager {
     }
 
     /**
-     * Monitor open trades and close if SL or TP hit
+     * Update trailing stops and time exits using already-fetched data (no extra REST calls).
+     * Called from executeStrategy every 2 minutes.
      */
-    public void monitorAndCloseTrades() {
-        try {
-            List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
-            BigDecimal currentPrice = binanceClient.getCurrentPrice();
-            List<Kline> klines = binanceClient.getKlines(symbol, "5m", atrPeriod + 5);
-            Kline currentKline = (klines != null && !klines.isEmpty()) ? klines.get(klines.size() - 1) : null;
-
-            PriceProjection projection = indicatorCalculator.calculatePriceProjection(
-                    klines, atrPeriod, projectionCandlesAhead, takeProfitPct);
-
-            for (Trade trade : openTrades) {
-                checkAndCloseTrade(trade, currentPrice, currentKline, projection);
-            }
-
-        } catch (Exception e) {
-            logger.error("Error monitoring trades: {}", e.getMessage(), e);
+    public void updateTrailingAndTimeExit(BigDecimal currentPrice, Kline currentKline, PriceProjection projection) {
+        List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
+        if (openTrades == null || openTrades.isEmpty()) return;
+        for (Trade trade : openTrades) {
+            updateTrailingStop(trade, currentPrice, currentKline, projection);
+            checkTimeExit(trade, currentPrice);
         }
     }
 
-    private void checkAndCloseTrade(Trade trade, BigDecimal currentPrice, Kline currentKline, PriceProjection projection) {
+    private void updateTrailingStop(Trade trade, BigDecimal currentPrice, Kline currentKline, PriceProjection projection) {
         BigDecimal entryPrice = trade.getEntryPrice();
         BigDecimal stopLoss = trade.getStopLoss();
-        BigDecimal takeProfit = trade.getTakeProfit();
         boolean isShort = "SHORT".equals(trade.getAction());
         LocalDateTime entryTime = trade.getEntryTime();
 
-        // Trailing stop: skip if TP is projected reachable within ATR range (let trade run freely to TP)
-        // Only activate trailing when volatility is too low to reach TP (capture partial gains instead)
+        if (entryPrice == null || stopLoss == null || trailingStopPct <= 0) return;
+
         boolean tpReachable = projection != null &&
                 (isShort ? projection.isTpReachableShort() : projection.isTpReachableLong());
         if (tpReachable) {
-            logger.debug("Trade {}: TP within ATR range [{}–{}] — trailing stop bypassed, running to TP",
-                    trade.getId(),
-                    String.format("%.4f", projection.getProjectedLow()),
-                    String.format("%.4f", projection.getProjectedHigh()));
+            logger.debug("Trade {}: TP within ATR range — trailing stop bypassed", trade.getId());
+            return;
         }
 
-        // Trailing stop: track favorable price movement and raise/lower SL
-        // Only activates once price moves favorably by at least trailingActivationPct from entry
-        if (!tpReachable && trailingStopPct > 0 && entryPrice != null && stopLoss != null) {
-            BigDecimal peak = tradePeakPrices.getOrDefault(trade.getId(), entryPrice);
+        BigDecimal peak = tradePeakPrices.getOrDefault(trade.getId(), entryPrice);
 
-            // Update peak with current kline high/low to catch intrabar moves
-            if (currentKline != null) {
-                if (isShort) {
-                    BigDecimal klineLow = currentKline.getLow();
-                    if (klineLow != null && klineLow.compareTo(peak) < 0) {
-                        peak = klineLow;
-                    }
-                } else {
-                    BigDecimal klineHigh = currentKline.getHigh();
-                    if (klineHigh != null && klineHigh.compareTo(peak) > 0) {
-                        peak = klineHigh;
-                    }
-                }
-                tradePeakPrices.put(trade.getId(), peak);
+        if (currentKline != null) {
+            if (isShort) {
+                BigDecimal klineLow = currentKline.getLow();
+                if (klineLow != null && klineLow.compareTo(peak) < 0) peak = klineLow;
             } else {
-                // Fallback to currentPrice snapshot
-                if (isShort) {
-                    if (currentPrice.compareTo(peak) < 0) {
-                        peak = currentPrice;
-                    }
-                } else {
-                    if (currentPrice.compareTo(peak) > 0) {
-                        peak = currentPrice;
-                    }
-                }
-                tradePeakPrices.put(trade.getId(), peak);
+                BigDecimal klineHigh = currentKline.getHigh();
+                if (klineHigh != null && klineHigh.compareTo(peak) > 0) peak = klineHigh;
             }
-
-            double favorableMove = isShort
-                    ? entryPrice.doubleValue() - peak.doubleValue()
-                    : peak.doubleValue() - entryPrice.doubleValue();
-            double movePct = favorableMove / entryPrice.doubleValue() * 100.0;
-
-            double breakevenThreshold = entryPrice.doubleValue() * breakevenActivationPct / 100.0;
-            double activationThreshold = entryPrice.doubleValue() * trailingActivationPct / 100.0;
-
-            BigDecimal breakevenSL = isShort
-                    ? entryPrice.multiply(BigDecimal.valueOf(1 - minProfitPct / 100.0)).setScale(8, RoundingMode.HALF_UP)
-                    : entryPrice.multiply(BigDecimal.valueOf(1 + minProfitPct / 100.0)).setScale(8, RoundingMode.HALF_UP);
-
-            // Phase 1: Breakeven lock (no trailing yet, just move SL to entry + min profit)
-            if (favorableMove >= breakevenThreshold && favorableMove < activationThreshold) {
-                if (isShort) {
-                    if (breakevenSL.compareTo(stopLoss) < 0) {
-                        trade.setStopLoss(breakevenSL);
-                        tradeRepository.save(trade);
-                        logger.info("Breakeven lock for SHORT Trade {}. SL: {} (entry: {}, min-profit: {}%)",
-                                trade.getId(), breakevenSL, entryPrice, minProfitPct);
-                    }
-                } else {
-                    if (breakevenSL.compareTo(stopLoss) > 0) {
-                        trade.setStopLoss(breakevenSL);
-                        tradeRepository.save(trade);
-                        logger.info("Breakeven lock for LONG Trade {}. SL: {} (entry: {}, min-profit: {}%)",
-                                trade.getId(), breakevenSL, entryPrice, minProfitPct);
-                    }
-                }
-            }
-
-            // Phase 2+3: Trailing stop with profit floor and time-based trail width
-            if (favorableMove >= activationThreshold) {
-                double dynamicTrailPct;
-                if (movePct >= 1.0) {
-                    dynamicTrailPct = 0.25;
-                } else if (movePct < 0.8) {
-                    long heldMin = Duration.between(entryTime, LocalDateTime.now()).toMinutes();
-                    dynamicTrailPct = (heldMin < timeThresholdMin) ? timeBasedTrailPct : 0.3;
-                } else {
-                    dynamicTrailPct = 0.3;
-                }
-                BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(dynamicTrailPct / 100));
-
-                if (isShort) {
-                    BigDecimal newSL = peak.add(trailingDistance);
-                    BigDecimal effectiveSL = newSL.min(breakevenSL);
-                    if (effectiveSL.compareTo(stopLoss) < 0) {
-                        trade.setStopLoss(effectiveSL);
-                        tradeRepository.save(trade);
-                        logger.info("Trailing stop tightened for SHORT Trade {}. SL: {} (peak: {}, move: -{}%, trail: {}%, floor: {})",
-                                trade.getId(), effectiveSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct), breakevenSL);
-                    }
-                } else {
-                    BigDecimal newSL = peak.subtract(trailingDistance);
-                    BigDecimal effectiveSL = newSL.max(breakevenSL);
-                    if (effectiveSL.compareTo(stopLoss) > 0) {
-                        trade.setStopLoss(effectiveSL);
-                        tradeRepository.save(trade);
-                        logger.info("Trailing stop raised for LONG Trade {}. SL: {} (peak: {}, move: +{}%, trail: {}%, floor: {})",
-                                trade.getId(), effectiveSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct), breakevenSL);
-                    }
-                }
-            } else if (favorableMove < breakevenThreshold) {
-                logger.debug("Trailing/Breakeven not yet active for Trade {}. Favorable move: {}% (need {}%)",
-                        trade.getId(), String.format("%.3f", movePct), String.format("%.1f", breakevenActivationPct));
-            }
-        }
-        // Time-based exit: close if held longer than maxHoldMinutes
-        if (entryTime != null) {
-            Duration held = Duration.between(entryTime, LocalDateTime.now());
-            if (held.toMinutes() >= maxHoldMinutes) {
-                logger.info("⏱️ Time exit for Trade {}. Held: {} min (max: {} min). Current: {}, Entry: {}",
-                        trade.getId(), held.toMinutes(), maxHoldMinutes, currentPrice, entryPrice);
-                closeTrade(trade, currentPrice, "TIME_EXIT");
-                return;
-            }
-        }
-
-        // Detect if trailing stop adjusted the SL beyond the original fixed/ATR SL
-        boolean slAdjustedByTrailing;
-        if (trade.getOriginalStopLoss() != null) {
-            slAdjustedByTrailing = trade.getOriginalStopLoss().compareTo(stopLoss) != 0;
+            tradePeakPrices.put(trade.getId(), peak);
         } else {
-            // Fallback for trades opened before originalStopLoss field was added
-            slAdjustedByTrailing = isShort
-                    ? stopLoss.compareTo(entryPrice) < 0
-                    : stopLoss.compareTo(entryPrice) > 0;
+            if (isShort) {
+                if (currentPrice.compareTo(peak) < 0) peak = currentPrice;
+            } else {
+                if (currentPrice.compareTo(peak) > 0) peak = currentPrice;
+            }
+            tradePeakPrices.put(trade.getId(), peak);
         }
 
-        // For SHORT: SL is above entry, TP is below entry
-        if (isShort) {
-            if (currentPrice.compareTo(stopLoss) >= 0) {
-                String reason = slAdjustedByTrailing ? "TRAILING_STOP" : "STOP_LOSS";
-                logger.info("🛑 {} hit for SHORT Trade {}. Current: {}, SL: {}",
-                        reason, trade.getId(), currentPrice, stopLoss);
-                closeTrade(trade, currentPrice, reason);
-                return;
-            }
-            if (currentPrice.compareTo(takeProfit) <= 0) {
-                logger.info("🎯 Take Profit hit for SHORT Trade {}. Current: {}, TP: {}",
-                        trade.getId(), currentPrice, takeProfit);
-                closeTrade(trade, currentPrice, "TAKE_PROFIT");
-                return;
-            }
-        } else {
-            if (currentPrice.compareTo(stopLoss) <= 0) {
-                String reason = slAdjustedByTrailing ? "TRAILING_STOP" : "STOP_LOSS";
-                logger.info("🛑 {} hit for LONG Trade {}. Current: {}, SL: {}",
-                        reason, trade.getId(), currentPrice, stopLoss);
-                closeTrade(trade, currentPrice, reason);
-                return;
-            }
-            if (currentPrice.compareTo(takeProfit) >= 0) {
-                logger.info("🎯 Take Profit hit for LONG Trade {}. Current: {}, TP: {}",
-                        trade.getId(), currentPrice, takeProfit);
-                closeTrade(trade, currentPrice, "TAKE_PROFIT");
-                return;
+        double favorableMove = isShort
+                ? entryPrice.doubleValue() - peak.doubleValue()
+                : peak.doubleValue() - entryPrice.doubleValue();
+        double movePct = favorableMove / entryPrice.doubleValue() * 100.0;
+
+        double breakevenThreshold = entryPrice.doubleValue() * breakevenActivationPct / 100.0;
+        double activationThreshold = entryPrice.doubleValue() * trailingActivationPct / 100.0;
+
+        BigDecimal breakevenSL = isShort
+                ? entryPrice.multiply(BigDecimal.valueOf(1 - minProfitPct / 100.0)).setScale(8, RoundingMode.HALF_UP)
+                : entryPrice.multiply(BigDecimal.valueOf(1 + minProfitPct / 100.0)).setScale(8, RoundingMode.HALF_UP);
+
+        // Phase 1: Breakeven lock
+        if (favorableMove >= breakevenThreshold && favorableMove < activationThreshold) {
+            boolean shouldUpdate = isShort ? breakevenSL.compareTo(stopLoss) < 0 : breakevenSL.compareTo(stopLoss) > 0;
+            if (shouldUpdate) {
+                trade.setStopLoss(breakevenSL);
+                tradeRepository.save(trade);
+                updateBinanceStopLossOrder(trade);
+                logger.info("Breakeven lock for {} Trade {}. SL: {} (entry: {}, min-profit: {}%)",
+                        isShort ? "SHORT" : "LONG", trade.getId(), breakevenSL, entryPrice, minProfitPct);
             }
         }
 
-        // Log monitoring (promote to INFO so it shows in Railway)
-        BigDecimal pnl = isShort
-                ? entryPrice.subtract(currentPrice).multiply(trade.getQuantity())
-                : currentPrice.subtract(entryPrice).multiply(trade.getQuantity());
-        BigDecimal pnlPercent = isShort
-                ? entryPrice.subtract(currentPrice).divide(entryPrice, 8, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100))
-                : currentPrice.subtract(entryPrice).divide(entryPrice, 8, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
-        logger.info("📊 Monitoring Trade {} - Current: {}, Entry: {}, P&L: ${} ({}%), SL: {}, TP: {}",
-                trade.getId(), currentPrice, entryPrice, pnl.setScale(4, RoundingMode.HALF_UP),
-                pnlPercent.setScale(2, RoundingMode.HALF_UP), stopLoss, takeProfit);
+        // Phase 2+3: Trailing stop
+        if (favorableMove >= activationThreshold) {
+            double dynamicTrailPct;
+            if (movePct >= 1.0) {
+                dynamicTrailPct = 0.25;
+            } else if (movePct < 0.8) {
+                long heldMin = Duration.between(entryTime, LocalDateTime.now()).toMinutes();
+                dynamicTrailPct = (heldMin < timeThresholdMin) ? timeBasedTrailPct : 0.3;
+            } else {
+                dynamicTrailPct = 0.3;
+            }
+            BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(dynamicTrailPct / 100));
+
+            BigDecimal newSL;
+            BigDecimal effectiveSL;
+            if (isShort) {
+                newSL = peak.add(trailingDistance);
+                effectiveSL = newSL.min(breakevenSL);
+                if (effectiveSL.compareTo(stopLoss) < 0) {
+                    trade.setStopLoss(effectiveSL);
+                    tradeRepository.save(trade);
+                    updateBinanceStopLossOrder(trade);
+                    logger.info("Trailing stop tightened for SHORT Trade {}. SL: {} (peak: {}, move: -{}%, trail: {}%, floor: {})",
+                            trade.getId(), effectiveSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct), breakevenSL);
+                }
+            } else {
+                newSL = peak.subtract(trailingDistance);
+                effectiveSL = newSL.max(breakevenSL);
+                if (effectiveSL.compareTo(stopLoss) > 0) {
+                    trade.setStopLoss(effectiveSL);
+                    tradeRepository.save(trade);
+                    updateBinanceStopLossOrder(trade);
+                    logger.info("Trailing stop raised for LONG Trade {}. SL: {} (peak: {}, move: +{}%, trail: {}%, floor: {})",
+                            trade.getId(), effectiveSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct), breakevenSL);
+                }
+            }
+        } else if (favorableMove < breakevenThreshold) {
+            logger.debug("Trailing/Breakeven not yet active for Trade {}. Favorable move: {}% (need {}%)",
+                    trade.getId(), String.format("%.3f", movePct), String.format("%.1f", breakevenActivationPct));
+        }
+    }
+
+    private void updateBinanceStopLossOrder(Trade trade) {
+        try {
+            if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().isEmpty()) {
+                boolean cancelled = binanceClient.cancelOrder(trade.getStopLossOrderId());
+                if (!cancelled) {
+                    logger.warn("Failed to cancel old SL order {} for Trade {}", trade.getStopLossOrderId(), trade.getId());
+                }
+            }
+            boolean isLong = "LONG".equals(trade.getAction());
+            String slSide = isLong ? "SELL" : "BUY";
+            String positionSide = isLong ? "LONG" : "SHORT";
+            String newSlOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, trade.getQuantity(), trade.getStopLoss());
+            if (newSlOrderId != null) {
+                trade.setStopLossOrderId(newSlOrderId);
+                tradeRepository.save(trade);
+                logger.info("Updated Binance SL order for Trade {}: new orderId={}", trade.getId(), newSlOrderId);
+            } else {
+                logger.error("Failed to place new SL order for Trade {}", trade.getId());
+            }
+        } catch (Exception e) {
+            logger.error("Error updating Binance SL order for Trade {}: {}", trade.getId(), e.getMessage());
+        }
+    }
+
+    private void checkTimeExit(Trade trade, BigDecimal currentPrice) {
+        LocalDateTime entryTime = trade.getEntryTime();
+        if (entryTime == null) return;
+        Duration held = Duration.between(entryTime, LocalDateTime.now());
+        if (held.toMinutes() >= maxHoldMinutes) {
+            logger.info("⏱️ Time exit for Trade {}. Held: {} min (max: {} min). Current: {}, Entry: {}",
+                    trade.getId(), held.toMinutes(), maxHoldMinutes, currentPrice, trade.getEntryPrice());
+            closeTrade(trade, currentPrice, "TIME_EXIT");
+        }
+    }
+
+    /**
+     * Handle order updates from Binance User Data Stream (WebSocket).
+     * Called when SL or TP is executed server-side.
+     */
+    public void handleOrderUpdate(String orderId, String orderType, String status, String avgPrice) {
+        try {
+            if (orderId == null || orderId.isEmpty()) return;
+            // Find trade by SL or TP order ID
+            Trade trade = null;
+            List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
+            for (Trade t : openTrades) {
+                if (orderId.equals(t.getStopLossOrderId()) || orderId.equals(t.getTakeProfitOrderId())) {
+                    trade = t;
+                    break;
+                }
+            }
+            if (trade == null) {
+                logger.warn("Received WS order update for unknown orderId: {} (type={})", orderId, orderType);
+                return;
+            }
+
+            BigDecimal exitPrice = new BigDecimal(avgPrice);
+            String reason;
+            if ("STOP_MARKET".equalsIgnoreCase(orderType) || orderId.equals(trade.getStopLossOrderId())) {
+                reason = "TRAILING_STOP".equals(trade.getExitReason()) ? "TRAILING_STOP" : "STOP_LOSS";
+            } else {
+                reason = "TAKE_PROFIT";
+            }
+
+            logger.info("� WS Event: {} executed for Trade {} at price={}", reason, trade.getId(), exitPrice);
+            closeTradeFromEvent(trade, exitPrice, reason);
+        } catch (Exception e) {
+            logger.error("Error handling WS order update: {}", e.getMessage(), e);
+        }
+    }
+
+    private void closeTradeFromEvent(Trade trade, BigDecimal exitPrice, String reason) {
+        try {
+            // Cancel remaining conditional orders
+            if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().equals(trade.getBinanceOrderId())) {
+                binanceClient.cancelOrder(trade.getStopLossOrderId());
+            }
+            if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
+                binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+            }
+
+            BigDecimal commission = trade.getInvestedAmount()
+                    .multiply(BigDecimal.valueOf(0.0012))
+                    .setScale(8, RoundingMode.HALF_UP);
+
+            trade.close(exitPrice, reason, commission);
+            tradeRepository.save(trade);
+
+            if ("STOP_LOSS".equals(reason)) {
+                lastSlTime.put(trade.getAction(), LocalDateTime.now());
+            }
+
+            tradePeakPrices.remove(trade.getId());
+            telegramBot.sendTradeNotification(trade, "EXIT");
+
+            logger.info("✅ Trade {} closed from WS event. Reason: {}, P&L: ${} ({}%)",
+                    trade.getId(), reason, trade.getPnl(), trade.getPnlPercent());
+        } catch (Exception e) {
+            logger.error("Error closing trade {} from event: {}", trade.getId(), e.getMessage(), e);
+        }
     }
 
     private void closeTrade(Trade trade, BigDecimal exitPrice, String reason) {
         try {
+            // Cancel remaining conditional orders first (so Binance doesn't fire SL/TP after manual close)
+            if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().equals(trade.getBinanceOrderId())) {
+                binanceClient.cancelOrder(trade.getStopLossOrderId());
+            }
+            if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
+                binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+            }
+
             String orderId;
             if ("SHORT".equals(trade.getAction())) {
                 orderId = binanceClient.placeShortBuyOrder(trade.getQuantity());

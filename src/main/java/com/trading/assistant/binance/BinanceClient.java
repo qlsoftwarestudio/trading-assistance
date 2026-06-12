@@ -294,6 +294,115 @@ public class BinanceClient {
         return placeOrder("BUY", "SHORT", quantity, true);
     }
 
+    // ============== USER DATA STREAM ==============
+
+    public String createListenKey() {
+        if (!configured) {
+            return "DEMO_LISTEN_KEY";
+        }
+        try {
+            String response = webClient.post()
+                    .uri("/fapi/v1/listenKey")
+                    .header("X-MBX-APIKEY", apiKey)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            JsonNode root = mapper.readTree(response);
+            String key = root.get("listenKey").asText();
+            logger.info("User Data Stream listenKey created.");
+            return key;
+        } catch (Exception e) {
+            logger.error("Error creating listen key: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    public boolean keepAliveListenKey(String listenKey) {
+        if (!configured) {
+            return true;
+        }
+        try {
+            webClient.put()
+                    .uri("/fapi/v1/listenKey?listenKey=" + listenKey)
+                    .header("X-MBX-APIKEY", apiKey)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            return true;
+        } catch (Exception e) {
+            logger.error("Error keeping alive listen key: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    // ============== CONDITIONAL ORDERS ==============
+
+    public String placeStopLossOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice) {
+        return placeConditionalOrder(side, positionSide, quantity, stopPrice, "STOP_MARKET");
+    }
+
+    public String placeTakeProfitOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice) {
+        return placeConditionalOrder(side, positionSide, quantity, stopPrice, "TAKE_PROFIT_MARKET");
+    }
+
+    private String placeConditionalOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice, String type) {
+        if (!configured) {
+            logger.info("DEMO MODE: Would place {} {} order at {}", type, side, stopPrice);
+            return "DEMO_ORDER_" + System.currentTimeMillis();
+        }
+        try {
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", symbol);
+            params.put("side", side);
+            if (hedgeMode) {
+                params.put("positionSide", positionSide);
+            }
+            params.put("type", type);
+            params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
+            params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("timeInForce", "GTC");
+
+            String query = buildSignedQuery(params);
+            String response = webClient.post()
+                    .uri("/fapi/v1/order?" + query)
+                    .header("X-MBX-APIKEY", apiKey)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            logger.info("{} order placed: {}", type, response);
+            return extractOrderId(response);
+        } catch (Exception e) {
+            logger.error("Error placing {} order: {}", type, e.getMessage());
+            return null;
+        }
+    }
+
+    public boolean cancelOrder(String orderId) {
+        if (!configured) {
+            return true;
+        }
+        try {
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", symbol);
+            params.put("orderId", orderId);
+            String query = buildSignedQuery(params);
+
+            webClient.delete()
+                    .uri("/fapi/v1/order?" + query)
+                    .header("X-MBX-APIKEY", apiKey)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            logger.info("Order {} cancelled.", orderId);
+            return true;
+        } catch (Exception e) {
+            logger.error("Error cancelling order {}: {}", orderId, e.getMessage());
+            return false;
+        }
+    }
+
     // ============== PRIVATE HELPERS ==============
 
     private String buildSignedQuery(LinkedHashMap<String, Object> params) {

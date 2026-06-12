@@ -225,6 +225,10 @@ public class HypeStrategy {
             evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel);
             evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel);
 
+            // Update trailing stops and time exits for open trades (data already fetched above)
+            Kline currentKline = klines.get(klines.size() - 1);
+            tradeManager.updateTrailingAndTimeExit(currentPrice, currentKline, projection);
+
         } catch (Exception e) {
             logger.error("Error executing strategy: {}", e.getMessage(), e);
         }
@@ -542,16 +546,11 @@ public class HypeStrategy {
         executeStrategy();
     }
 
-    @Scheduled(fixedRate = 10000)
+    // monitorOpenTrades polling removed — Binance User Data Stream (WebSocket) now handles SL/TP execution.
+    // Trailing stop and time exit are updated within executeStrategy() using already-fetched data.
     public void monitorOpenTrades() {
-        if (!strategyEnabled) {
-            return;
-        }
-        try {
-            tradeManager.monitorAndCloseTrades();
-        } catch (Exception e) {
-            logger.error("Error monitoring trades: {}", e.getMessage(), e);
-        }
+        // Kept for manual/debug invocation only. Scheduled polling eliminated.
+        logger.debug("monitorOpenTrades() called manually — no-op since WS handles real-time execution.");
     }
 
     @Scheduled(cron = "0 0 4 * * *") // Every day at 4 AM
