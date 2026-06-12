@@ -77,7 +77,7 @@ public class TradeManager {
     @Value("${trading.strategy.trailing-stop-pct:0.6}")
     private double trailingStopPct;
 
-    @Value("${trading.strategy.trailing-activation-pct:0.3}")
+    @Value("${trading.strategy.trailing-activation-pct:0.6}")
     private double trailingActivationPct;
 
     @Value("${trading.strategy.sl-cooldown-minutes:10}")
@@ -370,10 +370,8 @@ public class TradeManager {
                 double dynamicTrailPct;
                 if (movePct >= 1.0) {
                     dynamicTrailPct = 0.25;
-                } else if (movePct >= 0.5) {
-                    dynamicTrailPct = 0.4;
                 } else {
-                    dynamicTrailPct = trailingStopPct;
+                    dynamicTrailPct = 0.3; // 0.6% <= movePct < 1.0%
                 }
                 BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(dynamicTrailPct / 100));
 
