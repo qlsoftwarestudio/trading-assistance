@@ -134,6 +134,15 @@ public class HypeStrategy {
     @Value("${trading.strategy.anti-pump-slope-threshold:0.03}")
     private double antiPumpSlopeThreshold;
 
+    @Value("${trading.strategy.rsi-overbought-uptrend:85}")
+    private double rsiOverboughtUptrend;
+
+    @Value("${trading.strategy.short-min-volume-uptrend:2.0}")
+    private double shortMinVolumeUptrend;
+
+    @Value("${trading.strategy.short-min-conditions-uptrend:2}")
+    private int shortMinConditionsUptrend;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -345,12 +354,35 @@ public class HypeStrategy {
 
     private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel) {
         boolean rsiReversingDown = rsi < previousRsi;
-        boolean meanReversionCondition = rsi > rsiOverbought && inSellZone && (!requireRsiReversal || rsiReversingDown);
+
+        // Dynamic RSI threshold: higher bar when shorting into strong uptrend
+        double effectiveRsiOverbought = rsiOverbought;
+        boolean strongUptrend = false;
+        if (ctx != null && ctx.getTrend1h() == MarketContext.TrendDirection.UP && ctx.getTrend4h() == MarketContext.TrendDirection.UP) {
+            effectiveRsiOverbought = rsiOverboughtUptrend;
+            strongUptrend = true;
+        }
+
+        boolean meanReversionCondition = rsi > effectiveRsiOverbought && inSellZone && (!requireRsiReversal || rsiReversingDown);
         boolean extremeOverbought = rsi > (100 - emaExtremeRsiThreshold);
         boolean volumeSpikeShort = rsi > (100 - oversoldSpikeRsiThreshold)
                 && relativeVolume >= oversoldSpikeVolumeThreshold
                 && rsiReversingDown;
         boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
+
+        // In strong uptrend, require at least 2 strong conditions (high RSI + high volume or breakout)
+        if (strongUptrend && (meanReversionCondition || breakoutCondition)) {
+            int strongConditions = 0;
+            if (rsi > effectiveRsiOverbought) strongConditions++;
+            if (relativeVolume >= shortMinVolumeUptrend) strongConditions++;
+            if (breakoutCondition) strongConditions++;
+            if (strongConditions < shortMinConditionsUptrend) {
+                logger.info("❌ SHORT rejected: only {} strong conditions met in uptrend (need {}). RSI={}, Vol={}x",
+                        strongConditions, shortMinConditionsUptrend,
+                        String.format("%.2f", rsi), String.format("%.2f", relativeVolume));
+                return;
+            }
+        }
 
         if (meanReversionCondition || breakoutCondition) {
             if (tradeManager.hasOpenPosition("SHORT")) {
@@ -460,9 +492,10 @@ public class HypeStrategy {
         } else {
             boolean channelUp = channel != null && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP
                     && channel.getSlopePct() >= antiPumpSlopeThreshold;
-            logger.info("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}, RevDown:{}) Breakout(Below:{}, Vol>1:{}) AntiPump(channelUP+strongSlope:{}, slope:{}%)",
-                    rsiOverbought, rsi > rsiOverbought, inSellZone, rsiReversingDown, breakoutBelow, relativeVolume >= 1.0,
-                    channelUp, channel != null ? String.format("%.3f", channel.getSlopePct()) : "N/A");
+            logger.info("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}, RevDown:{}) Breakout(Below:{}, Vol>1:{}) AntiPump(channelUP+strongSlope:{}, slope:{}%){}",
+                    effectiveRsiOverbought, rsi > effectiveRsiOverbought, inSellZone, rsiReversingDown, breakoutBelow, relativeVolume >= 1.0,
+                    channelUp, channel != null ? String.format("%.3f", channel.getSlopePct()) : "N/A",
+                    strongUptrend ? " [uptrend-mode]" : "");
         }
     }
 
