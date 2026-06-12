@@ -325,8 +325,46 @@ public class TradeManager {
         List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
         if (openTrades == null || openTrades.isEmpty()) return;
         for (Trade trade : openTrades) {
+            // Safety: ensure conditional orders exist on Binance (handles testnet fallback delays or failures)
+            ensureConditionalOrders(trade);
             updateTrailingStop(trade, currentPrice, currentKline, projection);
             checkTimeExit(trade, currentPrice);
+        }
+    }
+
+    private void ensureConditionalOrders(Trade trade) {
+        try {
+            boolean isLong = "LONG".equals(trade.getAction());
+            String slSide = isLong ? "SELL" : "BUY";
+            String tpSide = isLong ? "SELL" : "BUY";
+            String positionSide = isLong ? "LONG" : "SHORT";
+            BigDecimal quantity = trade.getQuantity();
+
+            if (trade.getStopLossOrderId() == null || trade.getStopLossOrderId().isEmpty()) {
+                logger.warn("Missing SL order for Trade {} — creating now", trade.getId());
+                String slOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, quantity, trade.getStopLoss());
+                if (slOrderId != null) {
+                    trade.setStopLossOrderId(slOrderId);
+                    tradeRepository.save(trade);
+                    logger.info("✅ Created missing SL order for Trade {}: orderId={}", trade.getId(), slOrderId);
+                } else {
+                    logger.error("CRITICAL: Failed to create missing SL order for Trade {}", trade.getId());
+                }
+            }
+
+            if (trade.getTakeProfitOrderId() == null || trade.getTakeProfitOrderId().isEmpty()) {
+                logger.warn("Missing TP order for Trade {} — creating now", trade.getId());
+                String tpOrderId = binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, trade.getTakeProfit());
+                if (tpOrderId != null) {
+                    trade.setTakeProfitOrderId(tpOrderId);
+                    tradeRepository.save(trade);
+                    logger.info("✅ Created missing TP order for Trade {}: orderId={}", trade.getId(), tpOrderId);
+                } else {
+                    logger.error("CRITICAL: Failed to create missing TP order for Trade {}", trade.getId());
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error ensuring conditional orders for Trade {}: {}", trade.getId(), e.getMessage());
         }
     }
 

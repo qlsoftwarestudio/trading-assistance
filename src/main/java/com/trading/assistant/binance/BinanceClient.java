@@ -404,8 +404,17 @@ public class BinanceClient {
             return extractOrderId(response);
         } catch (Exception e) {
             // Don't log full stack trace for "not supported" errors - caller will handle fallback
-            if (e.getMessage() != null && (e.getMessage().contains("-4120") || e.getMessage().contains("not supported"))) {
-                logger.warn("Order type {} not supported: {}", type, e.getMessage());
+            String errorDetails = e.getMessage();
+            if (e instanceof org.springframework.web.reactive.function.client.WebClientResponseException) {
+                org.springframework.web.reactive.function.client.WebClientResponseException wcre =
+                        (org.springframework.web.reactive.function.client.WebClientResponseException) e;
+                String body = wcre.getResponseBodyAsString();
+                if (body != null) {
+                    errorDetails = body;
+                }
+            }
+            if (errorDetails != null && (errorDetails.contains("-4120") || errorDetails.contains("not supported"))) {
+                logger.warn("Order type {} not supported on testnet: {}", type, errorDetails);
                 return null;
             }
             logger.error("Error placing {} order: {}", type, e.getMessage(), e);
