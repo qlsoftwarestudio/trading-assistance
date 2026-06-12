@@ -338,11 +338,21 @@ public class BinanceClient {
     // ============== CONDITIONAL ORDERS ==============
 
     public String placeStopLossOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice) {
-        return placeConditionalOrder(side, positionSide, quantity, stopPrice, "STOP_MARKET");
+        String orderId = placeConditionalOrder(side, positionSide, quantity, stopPrice, "STOP_MARKET");
+        if (orderId == null) {
+            logger.warn("STOP_MARKET not supported, falling back to STOP (limit conditional) for testnet");
+            orderId = placeConditionalOrder(side, positionSide, quantity, stopPrice, "STOP");
+        }
+        return orderId;
     }
 
     public String placeTakeProfitOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice) {
-        return placeConditionalOrder(side, positionSide, quantity, stopPrice, "TAKE_PROFIT_MARKET");
+        String orderId = placeConditionalOrder(side, positionSide, quantity, stopPrice, "TAKE_PROFIT_MARKET");
+        if (orderId == null) {
+            logger.warn("TAKE_PROFIT_MARKET not supported, falling back to TAKE_PROFIT (limit conditional) for testnet");
+            orderId = placeConditionalOrder(side, positionSide, quantity, stopPrice, "TAKE_PROFIT");
+        }
+        return orderId;
     }
 
     private String placeConditionalOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice, String type) {
@@ -362,15 +372,25 @@ public class BinanceClient {
             params.put("reduceOnly", "true");
             params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
 
+            // For STOP/TAKE_PROFIT (limit conditional), add price and timeInForce
+            if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
+                params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+                params.put("timeInForce", "GTC");
+            }
+
             String query = buildSignedQuery(params);
             String response = webClient.post()
                     .uri("/fapi/v1/order?" + query)
                     .header("X-MBX-APIKEY", apiKey)
                     .retrieve()
                     .onStatus(status -> status.is4xxClientError(), clientResponse ->
-                        clientResponse.bodyToMono(String.class).doOnNext(body ->
-                            logger.error("Binance 4xx placing {} ({}): {}", type, clientResponse.statusCode(), body)
-                        ).then(clientResponse.createException())
+                        clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            logger.error("Binance 4xx placing {} ({}): {}", type, clientResponse.statusCode(), body);
+                            // Check if this is the "not supported" error for testnet fallback
+                            if (body.contains("-4120") || body.contains("not supported")) {
+                                logger.warn("Order type {} not supported on this endpoint, caller will try fallback", type);
+                            }
+                        }).then(clientResponse.createException())
                     )
                     .onStatus(status -> status.is5xxServerError(), clientResponse ->
                         clientResponse.bodyToMono(String.class).doOnNext(body ->
@@ -383,6 +403,11 @@ public class BinanceClient {
             logger.info("{} order placed: {}", type, response);
             return extractOrderId(response);
         } catch (Exception e) {
+            // Don't log full stack trace for "not supported" errors - caller will handle fallback
+            if (e.getMessage() != null && (e.getMessage().contains("-4120") || e.getMessage().contains("not supported"))) {
+                logger.warn("Order type {} not supported: {}", type, e.getMessage());
+                return null;
+            }
             logger.error("Error placing {} order: {}", type, e.getMessage(), e);
             return null;
         }
