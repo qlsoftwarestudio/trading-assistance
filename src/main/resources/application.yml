@@ -56,6 +56,10 @@ trading:
     use-atr-stop: false
     trailing-stop-pct: 0.6
     trailing-activation-pct: 0.6
+    breakeven-activation-pct: 0.4
+    min-profit-pct: 0.08
+    time-based-trail-pct: 0.5
+    time-threshold-min: 10
     sl-cooldown-minutes: 10
     use-vwap-filter: true
     vwap-period: 20

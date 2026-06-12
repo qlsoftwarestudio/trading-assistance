@@ -80,6 +80,18 @@ public class TradeManager {
     @Value("${trading.strategy.trailing-activation-pct:0.6}")
     private double trailingActivationPct;
 
+    @Value("${trading.strategy.breakeven-activation-pct:0.4}")
+    private double breakevenActivationPct;
+
+    @Value("${trading.strategy.min-profit-pct:0.08}")
+    private double minProfitPct;
+
+    @Value("${trading.strategy.time-based-trail-pct:0.5}")
+    private double timeBasedTrailPct;
+
+    @Value("${trading.strategy.time-threshold-min:10}")
+    private int timeThresholdMin;
+
     @Value("${trading.strategy.sl-cooldown-minutes:10}")
     private int slCooldownMinutes;
 
@@ -359,42 +371,72 @@ public class TradeManager {
                 tradePeakPrices.put(trade.getId(), peak);
             }
 
-            // Check activation threshold: only move SL if favorable move >= trailingActivationPct
-            double activationThreshold = entryPrice.doubleValue() * trailingActivationPct / 100.0;
             double favorableMove = isShort
                     ? entryPrice.doubleValue() - peak.doubleValue()
                     : peak.doubleValue() - entryPrice.doubleValue();
+            double movePct = favorableMove / entryPrice.doubleValue() * 100.0;
 
+            double breakevenThreshold = entryPrice.doubleValue() * breakevenActivationPct / 100.0;
+            double activationThreshold = entryPrice.doubleValue() * trailingActivationPct / 100.0;
+
+            BigDecimal breakevenSL = isShort
+                    ? entryPrice.multiply(BigDecimal.valueOf(1 - minProfitPct / 100.0)).setScale(8, RoundingMode.HALF_UP)
+                    : entryPrice.multiply(BigDecimal.valueOf(1 + minProfitPct / 100.0)).setScale(8, RoundingMode.HALF_UP);
+
+            // Phase 1: Breakeven lock (no trailing yet, just move SL to entry + min profit)
+            if (favorableMove >= breakevenThreshold && favorableMove < activationThreshold) {
+                if (isShort) {
+                    if (breakevenSL.compareTo(stopLoss) < 0) {
+                        trade.setStopLoss(breakevenSL);
+                        tradeRepository.save(trade);
+                        logger.info("Breakeven lock for SHORT Trade {}. SL: {} (entry: {}, min-profit: {}%)",
+                                trade.getId(), breakevenSL, entryPrice, minProfitPct);
+                    }
+                } else {
+                    if (breakevenSL.compareTo(stopLoss) > 0) {
+                        trade.setStopLoss(breakevenSL);
+                        tradeRepository.save(trade);
+                        logger.info("Breakeven lock for LONG Trade {}. SL: {} (entry: {}, min-profit: {}%)",
+                                trade.getId(), breakevenSL, entryPrice, minProfitPct);
+                    }
+                }
+            }
+
+            // Phase 2+3: Trailing stop with profit floor and time-based trail width
             if (favorableMove >= activationThreshold) {
-                double movePct = favorableMove / entryPrice.doubleValue() * 100.0;
                 double dynamicTrailPct;
                 if (movePct >= 1.0) {
                     dynamicTrailPct = 0.25;
+                } else if (movePct < 0.8) {
+                    long heldMin = Duration.between(entryTime, LocalDateTime.now()).toMinutes();
+                    dynamicTrailPct = (heldMin < timeThresholdMin) ? timeBasedTrailPct : 0.3;
                 } else {
-                    dynamicTrailPct = 0.3; // 0.6% <= movePct < 1.0%
+                    dynamicTrailPct = 0.3;
                 }
                 BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(dynamicTrailPct / 100));
 
                 if (isShort) {
                     BigDecimal newSL = peak.add(trailingDistance);
-                    if (newSL.compareTo(stopLoss) < 0) {
-                        trade.setStopLoss(newSL);
+                    BigDecimal effectiveSL = newSL.min(breakevenSL);
+                    if (effectiveSL.compareTo(stopLoss) < 0) {
+                        trade.setStopLoss(effectiveSL);
                         tradeRepository.save(trade);
-                        logger.info("Trailing stop tightened for SHORT Trade {}. SL: {} (peak: {}, favorable move: -{}%, trail: {}%)",
-                                trade.getId(), newSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct));
+                        logger.info("Trailing stop tightened for SHORT Trade {}. SL: {} (peak: {}, move: -{}%, trail: {}%, floor: {})",
+                                trade.getId(), effectiveSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct), breakevenSL);
                     }
                 } else {
                     BigDecimal newSL = peak.subtract(trailingDistance);
-                    if (newSL.compareTo(stopLoss) > 0) {
-                        trade.setStopLoss(newSL);
+                    BigDecimal effectiveSL = newSL.max(breakevenSL);
+                    if (effectiveSL.compareTo(stopLoss) > 0) {
+                        trade.setStopLoss(effectiveSL);
                         tradeRepository.save(trade);
-                        logger.info("Trailing stop raised for LONG Trade {}. SL: {} (peak: {}, move: +{}%, trail: {}%)",
-                                trade.getId(), newSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct));
+                        logger.info("Trailing stop raised for LONG Trade {}. SL: {} (peak: {}, move: +{}%, trail: {}%, floor: {})",
+                                trade.getId(), effectiveSL, peak, String.format("%.3f", movePct), String.format("%.2f", dynamicTrailPct), breakevenSL);
                     }
                 }
-            } else {
-                logger.debug("Trailing stop not yet active for Trade {}. Favorable move: {}% (need {}%)",
-                        trade.getId(), String.format("%.3f", favorableMove / entryPrice.doubleValue() * 100), String.format("%.1f", trailingActivationPct));
+            } else if (favorableMove < breakevenThreshold) {
+                logger.debug("Trailing/Breakeven not yet active for Trade {}. Favorable move: {}% (need {}%)",
+                        trade.getId(), String.format("%.3f", movePct), String.format("%.1f", breakevenActivationPct));
             }
         }
         // Time-based exit: close if held longer than maxHoldMinutes
