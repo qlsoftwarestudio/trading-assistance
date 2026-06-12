@@ -302,10 +302,6 @@ public class TradeManager {
 
                 telegramBot.sendTradeNotification(trade, "ENTRY");
 
-                if (signal.getProjectionNote() != null && !signal.getProjectionNote().isEmpty()) {
-                    telegramBot.sendAlert("Proyección de precio", signal.getProjectionNote());
-                }
-
                 logger.info("✅ {} trade executed successfully. Trade ID: {}, Order ID: {}",
                         action, trade.getId(), orderId);
             } else {
