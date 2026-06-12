@@ -265,14 +265,14 @@ public class HypeStrategy {
 
             // Context filters (skipped when contextEnabled=false)
             if (contextEnabled && ctx != null) {
-                if (!ctx.supportsLong() && !volumeSpikeLong) {
+                if (!ctx.supportsLong() && !volumeSpikeLong && !extremeOversold) {
                     logger.info("❌ LONG rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
                             ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
                     return;
                 }
-                if (volumeSpikeLong && !ctx.supportsLong()) {
-                    logger.info("⚡ LONG context override: extreme oversold RSI={} + volume spike {}x (threshold: {}x)",
-                            String.format("%.2f", rsi), String.format("%.2f", relativeVolume), oversoldSpikeVolumeThreshold);
+                if ((volumeSpikeLong || extremeOversold) && !ctx.supportsLong()) {
+                    logger.info("⚡ LONG context override: extreme oversold RSI={} (volSpike={})",
+                            String.format("%.2f", rsi), volumeSpikeLong);
                 }
                 if (requireConfluence && !ctx.isConfluence()) {
                     logger.info("❌ LONG rejected: no trend confluence across timeframes");
