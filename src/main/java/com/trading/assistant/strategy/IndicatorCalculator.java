@@ -305,12 +305,13 @@ public class IndicatorCalculator {
      * Calculate relative volume: current volume vs average volume over lookback
      */
     public double calculateRelativeVolume(List<Kline> klines, int lookbackBars) {
-        if (klines == null || klines.size() < lookbackBars + 1) {
+        // Use previous completed candle (size-2) instead of in-progress last candle (size-1)
+        if (klines == null || klines.size() < lookbackBars + 2) {
             return 1.0;
         }
-        BigDecimal currentVolume = klines.get(klines.size() - 1).getVolume();
-        int start = Math.max(0, klines.size() - lookbackBars - 1);
-        double avgVolume = klines.subList(start, klines.size() - 1).stream()
+        BigDecimal currentVolume = klines.get(klines.size() - 2).getVolume();
+        int start = Math.max(0, klines.size() - lookbackBars - 2);
+        double avgVolume = klines.subList(start, klines.size() - 2).stream()
                 .mapToDouble(k -> k.getVolume().doubleValue())
                 .average()
                 .orElse(1.0);
