@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -323,12 +324,28 @@ public class TradeManager {
         for (Trade trade : openTrades) {
             // Safety: ensure conditional orders exist on Binance (handles testnet fallback delays or failures)
             ensureConditionalOrders(trade);
-            // Local SL/TP check for testnet (Binance conditional orders not supported)
-            if (checkPriceAgainstSLTP(trade, currentPrice)) {
-                continue; // Trade was closed by SL or TP
-            }
             updateTrailingStop(trade, currentPrice, currentKline, projection);
             checkTimeExit(trade, currentPrice);
+        }
+    }
+
+    /**
+     * Fast polling (10s) to check SL/TP for open trades.
+     * Critical for testnet where Binance conditional orders are not supported.
+     * In production, Binance handles this server-side, but this still provides safety.
+     */
+    @Scheduled(fixedRate = 10000)
+    public void monitorOpenTradesSLTP() {
+        try {
+            List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
+            if (openTrades == null || openTrades.isEmpty()) return;
+            BigDecimal currentPrice = binanceClient.getCurrentPrice();
+            if (currentPrice == null) return;
+            for (Trade trade : openTrades) {
+                checkPriceAgainstSLTP(trade, currentPrice);
+            }
+        } catch (Exception e) {
+            logger.debug("Error in monitorOpenTradesSLTP: {}", e.getMessage());
         }
     }
 
