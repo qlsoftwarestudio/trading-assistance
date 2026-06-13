@@ -429,11 +429,10 @@ public class BinanceClient {
             if (hedgeMode) {
                 params.put("positionSide", positionSide);
             }
-            params.put("algoType", "CONDITIONAL");
-            params.put("orderType", type);
+            params.put("type", type);
             params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             params.put("reduceOnly", "true");
-            params.put("triggerPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
             params.put("workingType", "CONTRACT_PRICE");
 
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
