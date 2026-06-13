@@ -4,6 +4,8 @@ import com.trading.assistant.binance.BinanceClient;
 import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.notification.TelegramBot;
 import com.trading.assistant.portfolio.model.Trade;
+import com.trading.assistant.portfolio.model.TradeJournal;
+import com.trading.assistant.portfolio.repository.TradeJournalRepository;
 import com.trading.assistant.portfolio.repository.TradeRepository;
 import com.trading.assistant.strategy.IndicatorCalculator;
 import com.trading.assistant.strategy.model.PriceProjection;
@@ -44,6 +46,9 @@ public class TradeManager {
 
     @Autowired
     private IndicatorCalculator indicatorCalculator;
+
+    @Autowired
+    private TradeJournalRepository tradeJournalRepository;
 
     @Value("${trading.strategy.stop-loss-pct:2.0}")
     private double stopLossPct;
@@ -134,6 +139,25 @@ public class TradeManager {
     private final Map<String, LocalDateTime> lastSlTime = new ConcurrentHashMap<>();
     private final Map<Long, BigDecimal> tradePeakPrices = new ConcurrentHashMap<>();
     private final Map<Long, Double> tradeEntryMomentum = new ConcurrentHashMap<>();
+    private final Map<Long, JournalEntryData> tradeJournalData = new ConcurrentHashMap<>();
+
+    /**
+     * Simple data holder for journal entry conditions captured at trade entry.
+     */
+    private static class JournalEntryData {
+        String setupType;
+        BigDecimal entryRsi;
+        BigDecimal entryVolumeRatio;
+        BigDecimal entryMomentum;
+        String trend1h;
+        String trend4h;
+        String trend1d;
+        BigDecimal atrAtEntry;
+        Boolean inBuyZone;
+        Boolean inSellZone;
+        Boolean vwapFilterPassed;
+        Boolean regressionFilterPassed;
+    }
 
     private boolean isDailyLossLimitHit(BigDecimal balance) {
         try {
@@ -314,6 +338,26 @@ public class TradeManager {
                 if (signal.getMomentum() != null) {
                     tradeEntryMomentum.put(trade.getId(), signal.getMomentum().doubleValue());
                 }
+
+                // Capture journal entry data for learning
+                JournalEntryData jed = new JournalEntryData();
+                jed.setupType = signal.getSetupType();
+                jed.entryRsi = signal.getRsi();
+                jed.entryVolumeRatio = signal.getRelativeVolume();
+                jed.entryMomentum = signal.getMomentum();
+                jed.trend1h = signal.getTrend1h();
+                jed.trend4h = signal.getTrend4h();
+                jed.trend1d = signal.getTrend1d();
+                jed.inBuyZone = signal.getInBuyZone();
+                jed.inSellZone = signal.getInSellZone();
+                if (useAtrStop) {
+                    List<Kline> klines = binanceClient.getKlines(symbol, "5m", atrPeriod + 5);
+                    double atr = indicatorCalculator.calculateATR(klines, atrPeriod);
+                    if (atr > 0) {
+                        jed.atrAtEntry = BigDecimal.valueOf(atr);
+                    }
+                }
+                tradeJournalData.put(trade.getId(), jed);
 
                 // Place conditional SL and TP orders on Binance (server-side execution)
                 String slSide = isLong ? "SELL" : "BUY";
@@ -764,6 +808,9 @@ public class TradeManager {
                 tradePeakPrices.remove(trade.getId());
                 tradeEntryMomentum.remove(trade.getId());
 
+                // Save to trade journal for learning
+                saveTradeJournal(trade, reason);
+
                 telegramBot.sendTradeNotification(trade, "EXIT");
 
                 logger.info("✅ Trade {} closed. Reason: {}, P&L: ${} ({}%)",
@@ -774,6 +821,58 @@ public class TradeManager {
 
         } catch (Exception e) {
             logger.error("Error closing trade {}: {}", trade.getId(), e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Save trade outcome to journal for learning and auto-adjustment.
+     */
+    private void saveTradeJournal(Trade trade, String reason) {
+        try {
+            JournalEntryData jed = tradeJournalData.remove(trade.getId());
+            if (jed == null) return;
+
+            TradeJournal journal = new TradeJournal();
+            journal.setTradeId(trade.getId());
+            journal.setSymbol(trade.getSymbol());
+            journal.setAction(trade.getAction());
+            journal.setSetupType(jed.setupType);
+            journal.setEntryPrice(trade.getEntryPrice());
+            journal.setExitPrice(trade.getExitPrice());
+            journal.setPnl(trade.getPnl());
+            journal.setPnlPercent(trade.getPnlPercent());
+            journal.setEntryRsi(jed.entryRsi);
+            journal.setEntryVolumeRatio(jed.entryVolumeRatio);
+            journal.setEntryMomentum(jed.entryMomentum);
+            journal.setTrend1h(jed.trend1h);
+            journal.setTrend4h(jed.trend4h);
+            journal.setTrend1d(jed.trend1d);
+            journal.setAtrAtEntry(jed.atrAtEntry);
+
+            // Calculate SL/TP distance percentages
+            if (trade.getEntryPrice() != null && trade.getStopLoss() != null && trade.getEntryPrice().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal slDist = trade.getStopLoss().subtract(trade.getEntryPrice()).abs()
+                        .divide(trade.getEntryPrice(), 8, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100));
+                journal.setSlDistancePct(slDist);
+            }
+            if (trade.getEntryPrice() != null && trade.getTakeProfit() != null && trade.getEntryPrice().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal tpDist = trade.getTakeProfit().subtract(trade.getEntryPrice()).abs()
+                        .divide(trade.getEntryPrice(), 8, RoundingMode.HALF_UP)
+                        .multiply(BigDecimal.valueOf(100));
+                journal.setTpDistancePct(tpDist);
+            }
+
+            journal.setInBuyZone(jed.inBuyZone);
+            journal.setInSellZone(jed.inSellZone);
+            journal.setExitReason(reason);
+            journal.setExitTime(LocalDateTime.now());
+
+            tradeJournalRepository.save(journal);
+            logger.info("📓 Journal entry saved for Trade {}: setup={}, P&L=${} ({}%)",
+                    trade.getId(), jed.setupType, trade.getPnl(), trade.getPnlPercent());
+        } catch (Exception e) {
+            logger.error("Error saving trade journal for Trade {}: {}", trade.getId(), e.getMessage());
         }
     }
 

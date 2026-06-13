@@ -45,6 +45,9 @@ public class Signal {
     @Column(name = "trade_id")
     private Long tradeId;
 
+    @Column(length = 30)
+    private String setupType; // MEAN_REVERSION, BREAKOUT, TREND_DIP
+
     // --- Market Context at signal generation ---
     @Column(length = 10)
     private String trend1h; // UP, DOWN, SIDEWAYS
@@ -136,6 +139,9 @@ public class Signal {
 
     public Long getTradeId() { return tradeId; }
     public void setTradeId(Long tradeId) { this.tradeId = tradeId; }
+
+    public String getSetupType() { return setupType; }
+    public void setSetupType(String setupType) { this.setupType = setupType; }
 
     // Helper methods
     public boolean isLongSignal() {

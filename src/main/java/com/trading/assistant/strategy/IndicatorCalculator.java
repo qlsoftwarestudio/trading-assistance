@@ -619,4 +619,32 @@ public class IndicatorCalculator {
     public boolean isBreakoutBelow(double currentPrice, double sessionLow) {
         return currentPrice < sessionLow;
     }
+
+    /**
+     * Estimate volume delta (buy pressure vs sell pressure) for a single kline.
+     * Uses the position of the close within the high-low range as a proxy for
+     * buy/sell aggression. A close near the high suggests more buying pressure,
+     * a close near the low suggests more selling pressure.
+     *
+     * @return Estimated delta as a ratio of volume: positive = more buys, negative = more sells.
+     *         Range: [-volume, +volume]. Returns 0 if high == low (doji).
+     */
+    public double estimateVolumeDelta(Kline kline) {
+        if (kline == null) return 0;
+        BigDecimal high = kline.getHigh();
+        BigDecimal low = kline.getLow();
+        BigDecimal close = kline.getClose();
+        BigDecimal volume = kline.getVolume();
+        if (high == null || low == null || close == null || volume == null) return 0;
+        if (high.compareTo(low) == 0) return 0; // Doji, no directional pressure
+
+        // Normalize close position within the range: 0 = at low, 1 = at high
+        double position = close.subtract(low).doubleValue()
+                / high.subtract(low).doubleValue();
+
+        // Map to [-1, 1]: -1 = all sells, +1 = all buys
+        double deltaRatio = (position - 0.5) * 2.0;
+
+        return volume.doubleValue() * deltaRatio;
+    }
 }

@@ -43,6 +43,9 @@ public class HypeStrategy {
     @Autowired
     private SignalPerformanceService signalPerformanceService;
 
+    @Autowired
+    private AutoAdjustService autoAdjustService;
+
     @Value("${trading.strategy.enabled:true}")
     private boolean strategyEnabled;
 
@@ -132,6 +135,13 @@ public class HypeStrategy {
 
     @Value("${trading.strategy.trend-dip-channel-slope:0.02}")
     private double trendDipChannelSlope;
+
+    // Delta volume filter: estimate buy/sell pressure from candle close position
+    @Value("${trading.strategy.use-delta-volume-filter:true}")
+    private boolean useDeltaVolumeFilter;
+
+    @Value("${trading.strategy.delta-volume-threshold:0.20}")
+    private double deltaVolumeThreshold;
 
     @Value("${trading.strategy.anti-pump-slope-threshold:0.03}")
     private double antiPumpSlopeThreshold;
@@ -239,11 +249,24 @@ public class HypeStrategy {
                 logger.info("{}", channel.toLogString());
             }
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel);
+            Kline currentKline = klines.get(klines.size() - 1);
+
+            // Estimate buy/sell pressure from current candle
+            double deltaVolume = indicatorCalculator.estimateVolumeDelta(currentKline);
+            double deltaVolumeRatio = 0;
+            if (currentKline != null && currentKline.getVolume() != null && currentKline.getVolume().compareTo(BigDecimal.ZERO) > 0) {
+                deltaVolumeRatio = deltaVolume / currentKline.getVolume().doubleValue();
+            }
+            if (useDeltaVolumeFilter) {
+                logger.info("📊 Delta volume: {:.2f} (ratio: {:.2f}) - Buy pressure: {}",
+                        deltaVolume, deltaVolumeRatio,
+                        deltaVolumeRatio > 0 ? "DOMINANT" : (deltaVolumeRatio < 0 ? "SELLING" : "NEUTRAL"));
+            }
+
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio);
 
             // Update trailing stops and time exits for open trades (data already fetched above)
-            Kline currentKline = klines.get(klines.size() - 1);
             tradeManager.updateTrailingAndTimeExit(currentPrice, currentKline, projection);
 
         } catch (Exception e) {
@@ -251,7 +274,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel) {
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean extremeOversold = rsi < emaExtremeRsiThreshold;
@@ -328,6 +351,20 @@ public class HypeStrategy {
             if (meanReversionCondition) entryType = "Mean-Reversion";
             else if (breakoutCondition) entryType = "Breakout";
             else entryType = "Trend-Dip";
+
+            // Delta volume filter: for LONG, require net buying pressure (except breakouts which imply it)
+            if (useDeltaVolumeFilter && !breakoutCondition && deltaVolumeRatio < deltaVolumeThreshold) {
+                logger.info("❌ LONG {} rejected: sell pressure dominant (delta ratio: {:.2f}, need > {:.2f}).",
+                        entryType, deltaVolumeRatio, deltaVolumeThreshold);
+                return;
+            }
+
+            // Auto-adjust: skip if this setup has been disabled due to poor performance
+            if (!autoAdjustService.isSetupEnabled("LONG", entryType)) {
+                logger.info("🚫 LONG {} entry blocked by auto-adjust (poor recent performance).", entryType);
+                return;
+            }
+
             logger.info("🟢 LONG SIGNAL DETECTED ({})! RSI: {} (prev: {}), BuyZone: {}, RevUp: {}, Breakout: {}, TrendDip: {}, Volume: {}x, Momentum: {}",
                     entryType, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
                     inBuyZone, rsiReversingUp, breakoutAbove, trendDipCondition,
@@ -344,6 +381,7 @@ public class HypeStrategy {
                     inBuyZone,
                     inSellZone
             );
+            signal.setSetupType(entryType);
 
             // Regression channel filter: for mean-reversion LONG, price should be in lower half of channel
             // Bypassed when extreme oversold or volume spike override is active (capitulation event)
@@ -405,7 +443,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel) {
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio) {
         boolean rsiReversingDown = rsi < previousRsi;
 
         // Dynamic RSI threshold: higher bar when shorting into strong uptrend
@@ -522,6 +560,20 @@ public class HypeStrategy {
             if (meanReversionCondition) entryType = "Mean-Reversion";
             else if (breakoutCondition) entryType = "Breakout";
             else entryType = "Trend-Dip";
+
+            // Delta volume filter: for SHORT, require net selling pressure (except breakouts which imply it)
+            if (useDeltaVolumeFilter && !breakoutCondition && deltaVolumeRatio > -deltaVolumeThreshold) {
+                logger.info("❌ SHORT {} rejected: buy pressure dominant (delta ratio: {:.2f}, need < -{:.2f}).",
+                        entryType, deltaVolumeRatio, deltaVolumeThreshold);
+                return;
+            }
+
+            // Auto-adjust: skip if this setup has been disabled due to poor performance
+            if (!autoAdjustService.isSetupEnabled("SHORT", entryType)) {
+                logger.info("🚫 SHORT {} entry blocked by auto-adjust (poor recent performance).", entryType);
+                return;
+            }
+
             logger.info("🔴 SHORT SIGNAL DETECTED ({})! RSI: {} (prev: {}), SellZone: {}, RevDown: {}, Breakout: {}, TrendDip: {}, Volume: {}x, Momentum: {}",
                     entryType, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
                     inSellZone, rsiReversingDown, breakoutBelow, trendDipShortCondition,
@@ -538,6 +590,7 @@ public class HypeStrategy {
                     inBuyZone,
                     inSellZone
             );
+            signal.setSetupType(entryType);
 
             // Regression channel filter: for mean-reversion SHORT, price should be in upper half of channel
             // Bypassed when extreme overbought or volume spike override is active (blow-off top event)

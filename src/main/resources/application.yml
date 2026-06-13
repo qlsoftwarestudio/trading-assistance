@@ -71,6 +71,14 @@ trading:
     momentum-exit-enabled: true
     momentum-exit-drop-pct: 70.0
     momentum-exit-progress-threshold: 0.5
+    # Auto-adjust: disable setups with poor performance automatically
+    auto-adjust-enabled: true
+    auto-adjust-min-trades: 20
+    auto-adjust-win-rate-threshold: 0.30
+    auto-adjust-lookback-days: 30
+    # Delta volume filter: estimate buy/sell pressure from candle close position
+    use-delta-volume-filter: true
+    delta-volume-threshold: 0.20
     use-vwap-filter: true
     vwap-period: 20
     vwap-band-pct: 1.5

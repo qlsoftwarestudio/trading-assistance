@@ -11,7 +11,7 @@ Bot de trading automatizado para Binance USD-M Futures. Opera **HYPEUSDT en time
 | **Dirección** | LONG + SHORT (simétrico) |
 | **Leverage** | 5x |
 | **R:R** | 2:1 (TP = 2× SL) |
-| **Puntuación** | **8.5/10** |
+| **Puntuación** | **9.0/10** |
 
 ## 🚀 Inicio Rápido
 
@@ -99,6 +99,25 @@ La aplicación estará en:
 ### Momentum Exit
 
 Si el momentum cae **70% desde el entry** y el progreso hacia TP < 50%, cierra temprano.
+
+### Auto-Adjust (Machine Learning Básico)
+
+El bot **aprende de sus propios trades**:
+- Guarda cada trade en un journal con: setup type, RSI, volumen, momentum, tendencias, ATR, resultado
+- Cada 20 trades por setup, calcula win rate
+- Si win rate < 30% → **desactiva automáticamente** ese setup
+- Si win rate recupera → **reactiva automáticamente**
+
+```
+🚫 Auto-adjust: LONG Mean-Reversion disabled. Win rate: 22.5% (5 wins / 22 trades)
+```
+
+### Delta Volume Filter
+
+Estima la presión de compras vs ventas en cada vela usando la posición del cierre dentro del rango high-low:
+- **LONG**: solo si presión de compra > 20% (cierra en la mitad superior)
+- **SHORT**: solo si presión de venta > 20% (cierra en la mitad inferior)
+- **Breakouts**: exentos (el breakout ya implica la dirección)
 
 ## 🏗️ Arquitectura
 
