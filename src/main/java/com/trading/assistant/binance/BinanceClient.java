@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 public class BinanceClient {
@@ -363,6 +364,7 @@ public class BinanceClient {
             logger.info("DEMO MODE: Would place {} {} order at {}", type, side, stopPrice);
             return "DEMO_ORDER_" + System.currentTimeMillis();
         }
+        AtomicReference<String> errorBodyRef = new AtomicReference<>();
         try {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", symbol);
@@ -387,6 +389,7 @@ public class BinanceClient {
                     .retrieve()
                     .onStatus(status -> status.is4xxClientError(), clientResponse ->
                         clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            errorBodyRef.set(body);
                             logger.error("Binance 4xx placing {} ({}): {}", type, clientResponse.statusCode(), body);
                             if (body.contains("-4120") || body.contains("not supported") || body.contains("Algo Order API")) {
                                 logger.warn("Order type {} not supported on /fapi/v1/order, will try /fapi/v1/algoOrder", type);
@@ -394,9 +397,10 @@ public class BinanceClient {
                         }).then(clientResponse.createException())
                     )
                     .onStatus(status -> status.is5xxServerError(), clientResponse ->
-                        clientResponse.bodyToMono(String.class).doOnNext(body ->
-                            logger.error("Binance 5xx placing {} ({}): {}", type, clientResponse.statusCode(), body)
-                        ).then(clientResponse.createException())
+                        clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            errorBodyRef.set(body);
+                            logger.error("Binance 5xx placing {} ({}): {}", type, clientResponse.statusCode(), body);
+                        }).then(clientResponse.createException())
                     )
                     .bodyToMono(String.class)
                     .block();
@@ -404,14 +408,9 @@ public class BinanceClient {
             logger.info("{} order placed: {}", type, response);
             return extractOrderId(response);
         } catch (Exception e) {
-            String errorDetails = e.getMessage();
-            if (e instanceof org.springframework.web.reactive.function.client.WebClientResponseException) {
-                org.springframework.web.reactive.function.client.WebClientResponseException wcre =
-                        (org.springframework.web.reactive.function.client.WebClientResponseException) e;
-                String body = wcre.getResponseBodyAsString();
-                if (body != null) {
-                    errorDetails = body;
-                }
+            String errorDetails = errorBodyRef.get();
+            if (errorDetails == null) {
+                errorDetails = e.getMessage();
             }
             if (errorDetails != null && (errorDetails.contains("-4120") || errorDetails.contains("not supported") || errorDetails.contains("Algo Order API"))) {
                 logger.warn("Order type {} not supported on /fapi/v1/order, falling back to /fapi/v1/algoOrder: {}", type, errorDetails);
