@@ -90,16 +90,16 @@ public class MarketConditionGate {
         boolean allOk = volatilityOk && spreadOk && volumeOk && capacityOk;
 
         if (allOk) {
-            logger.info("🎯 MarketConditionGate: PASS. Vol={:.2f}% (min {}%), Spread={:.3f}% (max {}%), VolRatio={:.2f}x (min {}x), Open={}/{}+{}",
-                    volatilityPct, minVolatilityPct,
-                    spreadPct, maxSpreadPct,
-                    volRatio, minVolumeRatio,
+            logger.info("🎯 MarketConditionGate: PASS. Vol={}% (min {}%), Spread={}% (max {}%), VolRatio={}x (min {}x), Open={}/{}+{}",
+                    String.format("%.2f", volatilityPct), minVolatilityPct,
+                    String.format("%.3f", spreadPct), maxSpreadPct,
+                    String.format("%.2f", volRatio), minVolumeRatio,
                     openCount, maxConcurrentTrades, hunterMaxConcurrent);
         } else {
-            logger.debug("🚫 MarketConditionGate: FAIL. Vol={:.2f}% ({}), Spread={:.3f}% ({}), VolRatio={:.2f}x ({}), Open={}/{}+{}",
-                    volatilityPct, volatilityOk ? "OK" : "LOW",
-                    spreadPct, spreadOk ? "OK" : "WIDE",
-                    volRatio, volumeOk ? "OK" : "LOW",
+            logger.debug("🚫 MarketConditionGate: FAIL. Vol={}% ({}), Spread={}% ({}), VolRatio={}x ({}), Open={}/{}+{}",
+                    String.format("%.2f", volatilityPct), volatilityOk ? "OK" : "LOW",
+                    String.format("%.3f", spreadPct), spreadOk ? "OK" : "WIDE",
+                    String.format("%.2f", volRatio), volumeOk ? "OK" : "LOW",
                     openCount, maxConcurrentTrades, hunterMaxConcurrent);
         }
 
@@ -121,9 +121,9 @@ public class MarketConditionGate {
         double spreadPct = bookTicker != null ? bookTicker.getSpreadPct() : 999.0;
         double volRatio = indicatorCalculator.calculateRelativeVolume(klines1m, 20);
 
-        logger.info("📊 Market conditions (1m): Vol={:.2f}% (min {}%), Spread={:.3f}% (max {}%), VolRatio={:.2f}x (min {}x)",
-                volatilityPct, minVolatilityPct,
-                spreadPct, maxSpreadPct,
-                volRatio, minVolumeRatio);
+        logger.info("📊 Market conditions (1m): Vol={}% (min {}%), Spread={}% (max {}%), VolRatio={}x (min {}x)",
+                String.format("%.2f", volatilityPct), minVolatilityPct,
+                String.format("%.3f", spreadPct), maxSpreadPct,
+                String.format("%.2f", volRatio), minVolumeRatio);
     }
 }
