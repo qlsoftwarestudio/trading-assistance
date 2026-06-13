@@ -50,6 +50,7 @@ public class BinanceClient {
 
     private WebClient webClient;
     private boolean configured = false;
+    private boolean testnetMode = false;
     private int quantityPrecision = 1;
     private final Map<String, String> algoOrderTypes = new ConcurrentHashMap<>();
 
@@ -62,7 +63,8 @@ public class BinanceClient {
 
         if (apiKey != null && !apiKey.isEmpty() && apiSecret != null && !apiSecret.isEmpty()) {
             this.configured = true;
-            logger.info("Binance Futures client configured for {} (Testnet: {})", baseUrl, baseUrl.contains("testnet"));
+            this.testnetMode = baseUrl.contains("testnet") || baseUrl.contains("demo-fapi");
+            logger.info("Binance Futures client configured for {} (Testnet: {})", baseUrl, testnetMode);
             fetchQuantityPrecision();
             setLeverage(defaultLeverage);
         } else {
@@ -364,6 +366,10 @@ public class BinanceClient {
             logger.info("DEMO MODE: Would place {} {} order at {}", type, side, stopPrice);
             return "DEMO_ORDER_" + System.currentTimeMillis();
         }
+        if (testnetMode) {
+            logger.info("TESTNET: Conditional orders not supported by Binance testnet. Using local polling for {} {} at {}", type, side, stopPrice);
+            return "TESTNET_" + type + "_" + System.currentTimeMillis();
+        }
         AtomicReference<String> errorBodyRef = new AtomicReference<>();
         try {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
@@ -473,6 +479,10 @@ public class BinanceClient {
 
     public boolean cancelOrder(String orderId) {
         if (!configured) {
+            return true;
+        }
+        if (orderId != null && orderId.startsWith("TESTNET_")) {
+            logger.info("TESTNET: Skipping cancel for dummy order {}", orderId);
             return true;
         }
         try {
