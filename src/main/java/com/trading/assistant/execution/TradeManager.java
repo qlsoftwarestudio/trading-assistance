@@ -136,6 +136,9 @@ public class TradeManager {
     @Value("${trading.strategy.momentum-exit-progress-threshold:0.5}")
     private double momentumExitProgressThreshold;
 
+    @Value("${trading.strategy.momentum-exit-min-hold-minutes:15}")
+    private int momentumExitMinHoldMinutes;
+
     private final Map<String, LocalDateTime> lastSlTime = new ConcurrentHashMap<>();
     private final Map<Long, BigDecimal> tradePeakPrices = new ConcurrentHashMap<>();
     private final Map<Long, Double> tradeEntryMomentum = new ConcurrentHashMap<>();
@@ -655,11 +658,19 @@ public class TradeManager {
 
     /**
      * Momentum exit: close trade if momentum has stalled significantly.
-     * When initial momentum drops by X% and price hasn't progressed toward TP, exit early.
+     * Only evaluates after min hold time (default 15 min) to avoid killing trades on early noise.
      */
     private void checkMomentumExit(Trade trade, BigDecimal currentPrice, Kline currentKline) {
         if (!momentumExitEnabled) return;
         if (currentKline == null) return;
+
+        // Require minimum hold time before evaluating momentum exit
+        LocalDateTime entryTime = trade.getEntryTime();
+        if (entryTime == null) return;
+        long heldMin = Duration.between(entryTime, LocalDateTime.now()).toMinutes();
+        if (heldMin < momentumExitMinHoldMinutes) {
+            return;
+        }
 
         Double entryMomentum = tradeEntryMomentum.get(trade.getId());
         if (entryMomentum == null || entryMomentum == 0.0) return;
@@ -701,8 +712,13 @@ public class TradeManager {
         }
 
         if (momentumDrop >= momentumExitDropPct / 100.0 && progressToTp < momentumExitProgressThreshold) {
-            logger.info("📉 Momentum exit for Trade {}. Entry momentum: {:.4f}%, Current: {:.4f}%, Drop: {:.0f}%, Progress to TP: {:.1f}%",
-                    trade.getId(), entryMomentum, currentMomentum, momentumDrop * 100, progressToTp * 100);
+            logger.info("📉 Momentum exit for Trade {}. EntryMo: {}%, CurrentMo: {}%, Drop: {}%, ProgressToTP: {}%, Held: {}min",
+                    trade.getId(),
+                    String.format("%.4f", entryMomentum),
+                    String.format("%.4f", currentMomentum),
+                    String.format("%.0f", momentumDrop * 100),
+                    String.format("%.1f", progressToTp * 100),
+                    heldMin);
             closeTrade(trade, currentPrice, "MOMENTUM_EXIT");
         }
     }

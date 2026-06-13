@@ -71,6 +71,7 @@ trading:
     momentum-exit-enabled: true
     momentum-exit-drop-pct: 70.0
     momentum-exit-progress-threshold: 0.5
+    momentum-exit-min-hold-minutes: 15
     # Auto-adjust: disable setups with poor performance automatically
     auto-adjust-enabled: true
     auto-adjust-min-trades: 20
