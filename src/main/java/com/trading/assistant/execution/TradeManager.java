@@ -290,11 +290,31 @@ public class TradeManager {
                 return;
             }
 
-            // Check total concurrent trade limit (swing + scalp)
-            long openCount = tradeRepository.countByStatus("OPEN");
-            if (openCount >= maxConcurrentTrades + hunterMaxConcurrent) {
-                logger.info("Max concurrent trades reached ({}/{} swing + {} scalp). Skipping scalp {} entry.",
-                        openCount, maxConcurrentTrades, hunterMaxConcurrent, action);
+            // Check capacity: allow 1 LONG scalp + 1 SHORT scalp simultaneously
+            long scalpSameDir = 0;
+            long totalScalps = 0;
+            long swingCount = 0;
+            for (Trade t : tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN")) {
+                boolean isScalp = t.getSetupType() != null && t.getSetupType().startsWith("SCALP_");
+                if (isScalp) {
+                    totalScalps++;
+                    if (action.equals(t.getAction())) scalpSameDir++;
+                } else {
+                    swingCount++;
+                }
+            }
+            if (swingCount >= maxConcurrentTrades) {
+                logger.info("Max swing trades reached ({}/{}). Skipping scalp {} entry.",
+                        swingCount, maxConcurrentTrades, action);
+                return;
+            }
+            if (scalpSameDir >= 1) {
+                logger.info("Scalp {} already open ({}/1). Skipping.", action, scalpSameDir);
+                return;
+            }
+            if (totalScalps >= hunterMaxConcurrent) {
+                logger.info("Max scalp trades reached ({}/{}). Skipping scalp {} entry.",
+                        totalScalps, hunterMaxConcurrent, action);
                 return;
             }
 
@@ -350,6 +370,7 @@ public class TradeManager {
                         takeProfit
                 );
                 trade.setBinanceOrderId(orderId);
+                trade.setSetupType(setupType);
                 tradeRepository.save(trade);
 
                 // Initialize peak tracking for trailing
@@ -498,6 +519,7 @@ public class TradeManager {
                         takeProfit
                 );
                 trade.setBinanceOrderId(orderId);
+                trade.setSetupType(signal.getSetupType());
                 tradeRepository.save(trade);
 
                 // Initialize trailing stop tracking and momentum tracking

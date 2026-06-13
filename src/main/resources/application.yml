@@ -80,8 +80,8 @@ trading:
       min-volume-ratio: 1.5
       sl-pct: 0.1
       tp-pct: 0.3
-      position-size-pct: 50
-      max-concurrent: 1
+      position-size-pct: 35
+      max-concurrent: 2
       max-hold-minutes: 3
       rsi-oversold: 25
       rsi-overbought: 75

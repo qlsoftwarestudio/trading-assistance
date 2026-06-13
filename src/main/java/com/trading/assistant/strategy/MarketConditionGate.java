@@ -53,11 +53,22 @@ public class MarketConditionGate {
     private String symbol;
 
     /**
-     * Evaluate if market conditions allow scalp entries.
+     * Evaluate if market conditions allow scalp entries (any direction).
      * @param klines1m 1m klines for volatility and volume
      * @return true if all conditions pass
      */
     public boolean canScalp(List<Kline> klines1m) {
+        return canScalp(klines1m, null);
+    }
+
+    /**
+     * Evaluate if market conditions allow scalp entries for a specific direction.
+     * Allows 1 LONG scalp + 1 SHORT scalp simultaneously (2 total hunters).
+     * @param klines1m 1m klines for volatility and volume
+     * @param action "LONG" or "SHORT" (null for generic check)
+     * @return true if all conditions pass
+     */
+    public boolean canScalp(List<Kline> klines1m, String action) {
         if (klines1m == null || klines1m.size() < 20) {
             logger.debug("MarketConditionGate: insufficient 1m klines ({} < 20)", klines1m == null ? 0 : klines1m.size());
             return false;
@@ -83,24 +94,42 @@ public class MarketConditionGate {
         double volRatio = indicatorCalculator.calculateRelativeVolume(klines1m, 20);
         boolean volumeOk = volRatio >= minVolumeRatio;
 
-        // 4. Capacity check: ensure there's room for scalp trades
-        long openCount = tradeRepository.countByStatus("OPEN");
-        boolean capacityOk = openCount < (maxConcurrentTrades + hunterMaxConcurrent);
+        // 4. Capacity check: allow 1 LONG scalp + 1 SHORT scalp simultaneously
+        long scalpCountSameDirection = 0;
+        long totalScalpCount = 0;
+        if (action != null) {
+            var openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
+            for (var trade : openTrades) {
+                boolean isScalp = trade.getSetupType() != null && trade.getSetupType().startsWith("SCALP_");
+                if (isScalp) {
+                    totalScalpCount++;
+                    if (action.equals(trade.getAction())) {
+                        scalpCountSameDirection++;
+                    }
+                }
+            }
+        }
+        // Max 1 scalp per direction, max hunterMaxConcurrent total
+        boolean capacityOk = (action == null)
+                ? tradeRepository.countByStatus("OPEN") < (maxConcurrentTrades + hunterMaxConcurrent)
+                : (scalpCountSameDirection == 0 && totalScalpCount < hunterMaxConcurrent);
 
         boolean allOk = volatilityOk && spreadOk && volumeOk && capacityOk;
 
         if (allOk) {
-            logger.info("🎯 MarketConditionGate: PASS. Vol={}% (min {}%), Spread={}% (max {}%), VolRatio={}x (min {}x), Open={}/{}+{}",
+            logger.info("🎯 MarketConditionGate: PASS for {}. Vol={}% (min {}%), Spread={}% (max {}%), VolRatio={}x (min {}x), Scalps={}/{}",
+                    action != null ? action : "ANY",
                     String.format("%.2f", volatilityPct), minVolatilityPct,
                     String.format("%.3f", spreadPct), maxSpreadPct,
                     String.format("%.2f", volRatio), minVolumeRatio,
-                    openCount, maxConcurrentTrades, hunterMaxConcurrent);
+                    totalScalpCount, hunterMaxConcurrent);
         } else {
-            logger.debug("🚫 MarketConditionGate: FAIL. Vol={}% ({}), Spread={}% ({}), VolRatio={}x ({}), Open={}/{}+{}",
+            logger.debug("🚫 MarketConditionGate: FAIL for {}. Vol={}% ({}), Spread={}% ({}), VolRatio={}x ({}), Scalps={}/{} sameDir={}",
+                    action != null ? action : "ANY",
                     String.format("%.2f", volatilityPct), volatilityOk ? "OK" : "LOW",
                     String.format("%.3f", spreadPct), spreadOk ? "OK" : "WIDE",
                     String.format("%.2f", volRatio), volumeOk ? "OK" : "LOW",
-                    openCount, maxConcurrentTrades, hunterMaxConcurrent);
+                    totalScalpCount, hunterMaxConcurrent, scalpCountSameDirection);
         }
 
         return allOk;

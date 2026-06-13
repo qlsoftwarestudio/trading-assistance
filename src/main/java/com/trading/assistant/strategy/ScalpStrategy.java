@@ -91,11 +91,6 @@ public class ScalpStrategy {
                 return;
             }
 
-            // Market condition gate: vol, spread, volume, capacity
-            if (!marketConditionGate.canScalp(klines1m)) {
-                return;
-            }
-
             // Calculate 1m indicators
             BigDecimal currentPrice = indicatorCalculator.getCurrentPriceFromKlines(klines1m);
             double rsi = indicatorCalculator.calculateRSIFromKlines(klines1m); // Uses last 5 closes
@@ -120,10 +115,11 @@ public class ScalpStrategy {
                 vwapDistancePct = Math.abs(currentPrice.subtract(vwap).doubleValue()) / vwap.doubleValue() * 100.0;
             }
 
-            logger.info("🎯 Scalp indicators (1m): Price={}, RSI={:.2f} (prev={:.2f}), Mo={:.3f}%, BuyZone={}, SellZone={}, VWAP={}, EMA={}, VWAPdist={:.3f}%",
-                    currentPrice, rsi, previousRsi, momentum, inBuyZone, inSellZone, vwap, ema, vwapDistancePct);
+            logger.info("🎯 Scalp indicators (1m): Price={}, RSI={} (prev={}), Mo={}%, BuyZone={}, SellZone={}, VWAP={}, EMA={}, VWAPdist={}%",
+                    currentPrice, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
+                    String.format("%.3f", momentum), inBuyZone, inSellZone, vwap, ema, String.format("%.3f", vwapDistancePct));
 
-            // Evaluate scalp entries
+            // Evaluate scalp entries — gate checks per-direction capacity
             evaluateScalpLongEntry(currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m);
             evaluateScalpShortEntry(currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m);
 
@@ -135,6 +131,11 @@ public class ScalpStrategy {
     private void evaluateScalpLongEntry(BigDecimal currentPrice, double rsi, double previousRsi,
                                          double momentum, boolean inBuyZone, BigDecimal vwap,
                                          double vwapDistancePct, double ema, List<Kline> klines1m) {
+        // Per-direction gate check
+        if (!marketConditionGate.canScalp(klines1m, "LONG")) {
+            return;
+        }
+
         // Condition 1: RSI oversold micro
         boolean rsiOversoldMicro = rsi <= rsiOversold;
         // Condition 2: RSI reversing up (current > previous)
@@ -154,8 +155,9 @@ public class ScalpStrategy {
 
         if (meanRevLong || vwapBounce) {
             String entryType = meanRevLong ? "SCALP_MEAN_REVERSION" : "SCALP_VWAP_BOUNCE";
-            logger.info("🟢 SCALP LONG signal: {} | RSI={:.2f}→{:.2f}, Mo={:.3f}%, nearVwap={}, vol={:.2f}x",
-                    entryType, previousRsi, rsi, momentum, nearVwap, volRatio);
+            logger.info("🟢 SCALP LONG signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x",
+                    entryType, String.format("%.2f", previousRsi), String.format("%.2f", rsi),
+                    String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio));
             tradeManager.executeScalpLongEntry(currentPrice, entryType, rsi, momentum, volRatio);
         } else {
             logger.debug("No scalp LONG. MeanRev(RSI<{}:{}, RevUp:{}, Mo>{}:{}), VwapBounce(inBuy:{}, nearVwap:{}, aboveEma:{}, vol>1.5:{})",
@@ -167,6 +169,11 @@ public class ScalpStrategy {
     private void evaluateScalpShortEntry(BigDecimal currentPrice, double rsi, double previousRsi,
                                           double momentum, boolean inSellZone, BigDecimal vwap,
                                           double vwapDistancePct, double ema, List<Kline> klines1m) {
+        // Per-direction gate check
+        if (!marketConditionGate.canScalp(klines1m, "SHORT")) {
+            return;
+        }
+
         // Condition 1: RSI overbought micro
         boolean rsiOverboughtMicro = rsi >= rsiOverbought;
         // Condition 2: RSI reversing down
@@ -186,8 +193,9 @@ public class ScalpStrategy {
 
         if (meanRevShort || vwapRejection) {
             String entryType = meanRevShort ? "SCALP_MEAN_REVERSION" : "SCALP_VWAP_REJECTION";
-            logger.info("🔴 SCALP SHORT signal: {} | RSI={:.2f}→{:.2f}, Mo={:.3f}%, nearVwap={}, vol={:.2f}x",
-                    entryType, previousRsi, rsi, momentum, nearVwap, volRatio);
+            logger.info("🔴 SCALP SHORT signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x",
+                    entryType, String.format("%.2f", previousRsi), String.format("%.2f", rsi),
+                    String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio));
             tradeManager.executeScalpShortEntry(currentPrice, entryType, rsi, momentum, volRatio);
         } else {
             logger.debug("No scalp SHORT. MeanRev(RSI>{}:{}, RevDown:{}, Mo<-{}:{}), VwapReject(inSell:{}, nearVwap:{}, belowEma:{}, vol>1.5:{})",

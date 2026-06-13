@@ -57,6 +57,9 @@ public class Trade {
     @Column(length = 20)
     private String exitReason; // STOP_LOSS, TAKE_PROFIT, MANUAL
 
+    @Column(length = 50)
+    private String setupType; // MEAN_REVERSION, BREAKOUT, TREND_DIP, SCALP_*
+
     @Column(precision = 20, scale = 8)
     private BigDecimal commission;
 
@@ -151,6 +154,9 @@ public class Trade {
 
     public String getExitReason() { return exitReason; }
     public void setExitReason(String exitReason) { this.exitReason = exitReason; }
+
+    public String getSetupType() { return setupType; }
+    public void setSetupType(String setupType) { this.setupType = setupType; }
 
     public BigDecimal getCommission() { return commission; }
     public void setCommission(BigDecimal commission) { this.commission = commission; }
