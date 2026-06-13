@@ -67,8 +67,8 @@ trading:
     position-size-high-vol-factor: 0.5
     position-size-low-vol-factor: 1.5
     position-size-volatility-threshold: 1.5
-    # Momentum exit: close trade if momentum stalls
-    momentum-exit-enabled: true
+    # Momentum exit: DISABLED — redundant with trailing stop + time exit
+    momentum-exit-enabled: false
     momentum-exit-drop-pct: 70.0
     momentum-exit-progress-threshold: 0.5
     momentum-exit-min-hold-minutes: 15
