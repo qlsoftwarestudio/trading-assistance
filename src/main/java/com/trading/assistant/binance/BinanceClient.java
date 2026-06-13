@@ -430,10 +430,12 @@ public class BinanceClient {
             if (hedgeMode) {
                 params.put("positionSide", positionSide);
             }
-            params.put("type", type);
+            params.put("algoType", "CONDITIONAL");
+            params.put("orderType", type);
             params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             params.put("reduceOnly", "true");
-            params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("triggerPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("workingType", "CONTRACT_PRICE");
 
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
                 params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
@@ -459,11 +461,11 @@ public class BinanceClient {
                     .block();
 
             logger.info("Algo {} order placed: {}", type, response);
-            String orderId = extractOrderId(response);
-            if (orderId != null) {
-                algoOrderTypes.put(orderId, type);
+            String algoId = extractAlgoId(response);
+            if (algoId != null) {
+                algoOrderTypes.put(algoId, type);
             }
-            return orderId;
+            return algoId;
         } catch (Exception e) {
             logger.error("Error placing algo {} order: {}", type, e.getMessage(), e);
             return null;
@@ -497,16 +499,10 @@ public class BinanceClient {
 
     private boolean cancelAlgoOrder(String orderId) {
         try {
-            String type = algoOrderTypes.get(orderId);
-            if (type == null) {
-                logger.warn("Unknown algo order type for {}, trying STOP", orderId);
-                type = "STOP";
-            }
-
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", symbol);
             params.put("algoId", orderId);
-            params.put("type", type);
+            params.put("algoType", "CONDITIONAL");
             String query = buildSignedQuery(params);
 
             webClient.delete()
@@ -561,6 +557,16 @@ public class BinanceClient {
         } catch (Exception e) {
             logger.error("Failed to extract orderId from response: {}", jsonResponse);
             return "ORDER_" + System.currentTimeMillis();
+        }
+    }
+
+    private String extractAlgoId(String jsonResponse) {
+        try {
+            JsonNode root = mapper.readTree(jsonResponse);
+            return root.get("algoId").asText();
+        } catch (Exception e) {
+            logger.error("Failed to extract algoId from response: {}", jsonResponse);
+            return "ALGO_" + System.currentTimeMillis();
         }
     }
 
