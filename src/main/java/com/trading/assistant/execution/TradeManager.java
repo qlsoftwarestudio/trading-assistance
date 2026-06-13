@@ -323,8 +323,57 @@ public class TradeManager {
         for (Trade trade : openTrades) {
             // Safety: ensure conditional orders exist on Binance (handles testnet fallback delays or failures)
             ensureConditionalOrders(trade);
+            // Local SL/TP check for testnet (Binance conditional orders not supported)
+            if (checkPriceAgainstSLTP(trade, currentPrice)) {
+                continue; // Trade was closed by SL or TP
+            }
             updateTrailingStop(trade, currentPrice, currentKline, projection);
             checkTimeExit(trade, currentPrice);
+        }
+    }
+
+    private boolean checkPriceAgainstSLTP(Trade trade, BigDecimal currentPrice) {
+        try {
+            if (trade.getStopLoss() == null || trade.getTakeProfit() == null) return false;
+            boolean isLong = "LONG".equals(trade.getAction());
+
+            // Check Stop Loss
+            if (isLong) {
+                if (currentPrice.compareTo(trade.getStopLoss()) <= 0) {
+                    logger.info("⛔ Local SL hit for LONG Trade {}. Price {} <= SL {}",
+                            trade.getId(), currentPrice, trade.getStopLoss());
+                    closeTrade(trade, currentPrice, "STOP_LOSS");
+                    return true;
+                }
+            } else {
+                if (currentPrice.compareTo(trade.getStopLoss()) >= 0) {
+                    logger.info("⛔ Local SL hit for SHORT Trade {}. Price {} >= SL {}",
+                            trade.getId(), currentPrice, trade.getStopLoss());
+                    closeTrade(trade, currentPrice, "STOP_LOSS");
+                    return true;
+                }
+            }
+
+            // Check Take Profit
+            if (isLong) {
+                if (currentPrice.compareTo(trade.getTakeProfit()) >= 0) {
+                    logger.info("🎯 Local TP hit for LONG Trade {}. Price {} >= TP {}",
+                            trade.getId(), currentPrice, trade.getTakeProfit());
+                    closeTrade(trade, currentPrice, "TAKE_PROFIT");
+                    return true;
+                }
+            } else {
+                if (currentPrice.compareTo(trade.getTakeProfit()) <= 0) {
+                    logger.info("🎯 Local TP hit for SHORT Trade {}. Price {} <= TP {}",
+                            trade.getId(), currentPrice, trade.getTakeProfit());
+                    closeTrade(trade, currentPrice, "TAKE_PROFIT");
+                    return true;
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            logger.error("Error checking SL/TP for Trade {}: {}", trade.getId(), e.getMessage());
+            return false;
         }
     }
 
