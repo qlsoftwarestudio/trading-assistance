@@ -231,6 +231,170 @@ public class TradeManager {
         executeEntry(signal, "SHORT", binanceClient::placeShortSellOrder);
     }
 
+    // ============== SCALP / HUNTER ENTRIES ==============
+
+    @Value("${trading.strategy.hunter.sl-pct:0.1}")
+    private double hunterSlPct;
+
+    @Value("${trading.strategy.hunter.tp-pct:0.3}")
+    private double hunterTpPct;
+
+    @Value("${trading.strategy.hunter.position-size-pct:50}")
+    private double hunterPositionSizePct;
+
+    @Value("${trading.strategy.hunter.max-concurrent:1}")
+    private int hunterMaxConcurrent;
+
+    @Value("${trading.strategy.hunter.max-hold-minutes:3}")
+    private int hunterMaxHoldMinutes;
+
+    @Value("${trading.strategy.hunter.trailing-activation:0.15}")
+    private double hunterTrailingActivation;
+
+    @Value("${trading.strategy.hunter.trailing-pct:0.05}")
+    private double hunterTrailingPct;
+
+    /**
+     * Execute SCALP LONG entry — tight SL/TP, smaller position, no ATR.
+     * Called from ScalpStrategy when 1m conditions are met.
+     */
+    public void executeScalpLongEntry(BigDecimal currentPrice, String setupType,
+                                       double rsi, double momentum, double volRatio) {
+        executeScalpEntry(currentPrice, "LONG", setupType, rsi, momentum, volRatio,
+                binanceClient::placeBuyOrder);
+    }
+
+    /**
+     * Execute SCALP SHORT entry — tight SL/TP, smaller position, no ATR.
+     * Called from ScalpStrategy when 1m conditions are met.
+     */
+    public void executeScalpShortEntry(BigDecimal currentPrice, String setupType,
+                                        double rsi, double momentum, double volRatio) {
+        executeScalpEntry(currentPrice, "SHORT", setupType, rsi, momentum, volRatio,
+                binanceClient::placeShortSellOrder);
+    }
+
+    private void executeScalpEntry(BigDecimal currentPrice, String action, String setupType,
+                                    double rsi, double momentum, double volRatio,
+                                    OrderPlacer orderPlacer) {
+        try {
+            BigDecimal balance = binanceClient.getBalance("USDT");
+
+            // Check daily loss limit
+            if (isDailyLossLimitHit(balance)) {
+                return;
+            }
+
+            // Check SL cooldown
+            if (isCoolingDown(action)) {
+                return;
+            }
+
+            // Check total concurrent trade limit (swing + scalp)
+            long openCount = tradeRepository.countByStatus("OPEN");
+            if (openCount >= maxConcurrentTrades + hunterMaxConcurrent) {
+                logger.info("Max concurrent trades reached ({}/{} swing + {} scalp). Skipping scalp {} entry.",
+                        openCount, maxConcurrentTrades, hunterMaxConcurrent, action);
+                return;
+            }
+
+            // Position size: smaller than swing trades
+            BigDecimal rawPositionSize = balance
+                    .multiply(BigDecimal.valueOf(positionSizePct))
+                    .multiply(BigDecimal.valueOf(hunterPositionSizePct / 100.0))
+                    .divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+
+            // Single scalp uses full allocated size (no slot splitting like swing)
+            BigDecimal positionSize = rawPositionSize;
+
+            logger.info("🎯 Scalp capital allocation - Balance: ${}, Pos size: ${} ({}% × {}% hunter)",
+                    balance, positionSize, positionSizePct, hunterPositionSizePct);
+
+            // Calculate quantity (consider leverage)
+            BigDecimal notional = positionSize.multiply(BigDecimal.valueOf(leverage));
+            BigDecimal quantity = notional.divide(currentPrice, 8, RoundingMode.HALF_DOWN);
+
+            // Validate minimum notional
+            if (notional.compareTo(BigDecimal.valueOf(minNotional)) < 0) {
+                logger.warn("⚠️ Scalp notional too small: ${} < ${} min. Skipping.",
+                        notional.setScale(2, RoundingMode.HALF_UP), minNotional);
+                return;
+            }
+
+            // Fixed SL/TP for scalps (no ATR)
+            boolean isLong = "LONG".equals(action);
+            BigDecimal stopLoss;
+            BigDecimal takeProfit;
+            if (isLong) {
+                stopLoss = currentPrice.multiply(BigDecimal.valueOf(1 - hunterSlPct / 100)).setScale(8, RoundingMode.HALF_UP);
+                takeProfit = currentPrice.multiply(BigDecimal.valueOf(1 + hunterTpPct / 100)).setScale(8, RoundingMode.HALF_UP);
+            } else {
+                stopLoss = currentPrice.multiply(BigDecimal.valueOf(1 + hunterSlPct / 100)).setScale(8, RoundingMode.HALF_UP);
+                takeProfit = currentPrice.multiply(BigDecimal.valueOf(1 - hunterTpPct / 100)).setScale(8, RoundingMode.HALF_UP);
+            }
+
+            logger.info("🎯 Executing scalp {} entry - Price: {}, Qty: {}, SL: {} ({}%), TP: {} ({}%)",
+                    action, currentPrice, quantity, stopLoss, hunterSlPct, takeProfit, hunterTpPct);
+
+            // Place market order
+            String orderId = orderPlacer.place(quantity);
+
+            if (orderId != null) {
+                Trade trade = new Trade(
+                        symbol,
+                        action,
+                        currentPrice,
+                        quantity,
+                        positionSize,
+                        stopLoss,
+                        takeProfit
+                );
+                trade.setBinanceOrderId(orderId);
+                tradeRepository.save(trade);
+
+                // Initialize peak tracking for trailing
+                tradePeakPrices.put(trade.getId(), currentPrice);
+                tradeEntryMomentum.put(trade.getId(), momentum);
+
+                // Journal data
+                JournalEntryData jed = new JournalEntryData();
+                jed.setupType = setupType;
+                jed.entryRsi = BigDecimal.valueOf(rsi);
+                jed.entryVolumeRatio = BigDecimal.valueOf(volRatio);
+                jed.entryMomentum = BigDecimal.valueOf(momentum);
+                tradeJournalData.put(trade.getId(), jed);
+
+                // Place conditional SL/TP
+                String slSide = isLong ? "SELL" : "BUY";
+                String tpSide = isLong ? "SELL" : "BUY";
+                String positionSide = isLong ? "LONG" : "SHORT";
+
+                String slOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, quantity, stopLoss);
+                String tpOrderId = binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, takeProfit);
+
+                if (slOrderId != null && tpOrderId != null) {
+                    trade.setStopLossOrderId(slOrderId);
+                    trade.setTakeProfitOrderId(tpOrderId);
+                    tradeRepository.save(trade);
+                    logger.info("🔗 Scalp conditional orders placed for Trade {}: SL={}, TP={}",
+                            trade.getId(), slOrderId, tpOrderId);
+                } else {
+                    logger.warn("⚠️ Failed to place scalp conditional orders for Trade {}.", trade.getId());
+                }
+
+                telegramBot.sendTradeNotification(trade, "SCALP_ENTRY");
+
+                logger.info("✅ Scalp {} trade executed. Trade ID: {}, Order ID: {}",
+                        action, trade.getId(), orderId);
+            } else {
+                logger.error("❌ Failed to execute scalp {} order on Binance", action);
+            }
+
+        } catch (Exception e) {
+            logger.error("Error executing scalp {} entry: {}", action, e.getMessage(), e);
+        }
+    }
+
     private void executeEntry(Signal signal, String action, OrderPlacer orderPlacer) {
         try {
             BigDecimal currentPrice = signal.getPrice();
@@ -523,6 +687,15 @@ public class TradeManager {
 
         if (entryPrice == null || stopLoss == null || trailingStopPct <= 0) return;
 
+        // Detect scalp trades: setupType starts with SCALP_
+        JournalEntryData journal = tradeJournalData.get(trade.getId());
+        boolean isScalp = journal != null && journal.setupType != null && journal.setupType.startsWith("SCALP_");
+
+        if (isScalp) {
+            updateScalpTrailingStop(trade, currentPrice, entryPrice, stopLoss, isShort, entryTime);
+            return;
+        }
+
         boolean tpReachable = projection != null &&
                 (isShort ? projection.isTpReachableShort() : projection.isTpReachableLong());
         if (tpReachable) {
@@ -616,6 +789,58 @@ public class TradeManager {
         }
     }
 
+    /**
+     * Ultra-fast trailing stop for scalp trades.
+     * Activation at 0.15%, trail distance 0.05%.
+     * No breakeven phase — jumps straight to trailing when profitable.
+     */
+    private void updateScalpTrailingStop(Trade trade, BigDecimal currentPrice,
+                                          BigDecimal entryPrice, BigDecimal stopLoss,
+                                          boolean isShort, LocalDateTime entryTime) {
+        BigDecimal peak = tradePeakPrices.getOrDefault(trade.getId(), entryPrice);
+
+        if (isShort) {
+            if (currentPrice.compareTo(peak) < 0) peak = currentPrice;
+        } else {
+            if (currentPrice.compareTo(peak) > 0) peak = currentPrice;
+        }
+        tradePeakPrices.put(trade.getId(), peak);
+
+        double favorableMove = isShort
+                ? entryPrice.doubleValue() - peak.doubleValue()
+                : peak.doubleValue() - entryPrice.doubleValue();
+        double movePct = favorableMove / entryPrice.doubleValue() * 100.0;
+
+        double activationThreshold = entryPrice.doubleValue() * hunterTrailingActivation / 100.0;
+
+        if (favorableMove >= activationThreshold) {
+            BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(hunterTrailingPct / 100));
+            BigDecimal newSL;
+            if (isShort) {
+                newSL = peak.add(trailingDistance).setScale(8, RoundingMode.HALF_UP);
+                if (newSL.compareTo(stopLoss) < 0) {
+                    trade.setStopLoss(newSL);
+                    tradeRepository.save(trade);
+                    updateBinanceStopLossOrder(trade);
+                    logger.info("🎯 Scalp trailing tightened for SHORT Trade {}. SL: {} (peak: {}, move: -{}%, trail: {}%)",
+                            trade.getId(), newSL, peak, String.format("%.3f", movePct), String.format("%.2f", hunterTrailingPct));
+                }
+            } else {
+                newSL = peak.subtract(trailingDistance).setScale(8, RoundingMode.HALF_UP);
+                if (newSL.compareTo(stopLoss) > 0) {
+                    trade.setStopLoss(newSL);
+                    tradeRepository.save(trade);
+                    updateBinanceStopLossOrder(trade);
+                    logger.info("🎯 Scalp trailing raised for LONG Trade {}. SL: {} (peak: {}, move: +{}%, trail: {}%)",
+                            trade.getId(), newSL, peak, String.format("%.3f", movePct), String.format("%.2f", hunterTrailingPct));
+                }
+            }
+        } else {
+            logger.debug("Scalp trailing not yet active for Trade {}. Move: {}% (need {}%)",
+                    trade.getId(), String.format("%.3f", movePct), String.format("%.2f", hunterTrailingActivation));
+        }
+    }
+
     private void updateBinanceStopLossOrder(Trade trade) {
         try {
             String oldSlOrderId = trade.getStopLossOrderId();
@@ -649,9 +874,15 @@ public class TradeManager {
         LocalDateTime entryTime = trade.getEntryTime();
         if (entryTime == null) return;
         Duration held = Duration.between(entryTime, LocalDateTime.now());
-        if (held.toMinutes() >= maxHoldMinutes) {
-            logger.info("⏱️ Time exit for Trade {}. Held: {} min (max: {} min). Current: {}, Entry: {}",
-                    trade.getId(), held.toMinutes(), maxHoldMinutes, currentPrice, trade.getEntryPrice());
+
+        // Scalp trades: much shorter max hold time
+        JournalEntryData journal = tradeJournalData.get(trade.getId());
+        boolean isScalp = journal != null && journal.setupType != null && journal.setupType.startsWith("SCALP_");
+        int effectiveMaxHold = isScalp ? hunterMaxHoldMinutes : maxHoldMinutes;
+
+        if (held.toMinutes() >= effectiveMaxHold) {
+            logger.info("⏱️ Time exit for {}Trade {}. Held: {} min (max: {} min). Current: {}, Entry: {}",
+                    isScalp ? "SCALP " : "", trade.getId(), held.toMinutes(), effectiveMaxHold, currentPrice, trade.getEntryPrice());
             closeTrade(trade, currentPrice, "TIME_EXIT");
         }
     }

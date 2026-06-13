@@ -2,6 +2,7 @@ package com.trading.assistant.binance;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.trading.assistant.binance.model.BookTicker;
 import com.trading.assistant.binance.model.Kline;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -527,6 +528,36 @@ public class BinanceClient {
         } catch (Exception e) {
             logger.error("Error cancelling algo order {}: {}", orderId, e.getMessage());
             return false;
+        }
+    }
+
+    // ============== MARKET DATA ==============
+
+    /**
+     * Get best bid/ask (book ticker) for spread calculation.
+     * Endpoint: GET /fapi/v1/ticker/bookTicker?symbol=HYPEUSDT
+     * Returns: { "symbol": "BTCUSDT", "bidPrice": "...", "askPrice": "...", "bidQty": "...", "askQty": "...", "time": 1589437530011 }
+     */
+    public BookTicker getBookTicker() {
+        if (!configured) {
+            logger.warn("Binance not configured. Returning demo book ticker.");
+            return new BookTicker(symbol, new BigDecimal("59.99"), new BigDecimal("60.01"));
+        }
+        try {
+            String url = "/fapi/v1/ticker/bookTicker?symbol=" + symbol;
+            String response = webClient.get()
+                    .uri(url)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            JsonNode root = mapper.readTree(response);
+            String bidPrice = root.get("bidPrice").asText();
+            String askPrice = root.get("askPrice").asText();
+            return new BookTicker(symbol, new BigDecimal(bidPrice), new BigDecimal(askPrice));
+        } catch (Exception e) {
+            logger.error("Error getting book ticker: {}", e.getMessage());
+            return null;
         }
     }
 

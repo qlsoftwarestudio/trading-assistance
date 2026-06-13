@@ -72,6 +72,25 @@ trading:
     momentum-exit-drop-pct: 70.0
     momentum-exit-progress-threshold: 0.5
     momentum-exit-min-hold-minutes: 15
+    # Hunter / Scalping Mode (1m strategy)
+    hunter:
+      mode-enabled: true
+      min-volatility-pct: 1.0
+      max-spread-pct: 0.05
+      min-volume-ratio: 1.5
+      sl-pct: 0.1
+      tp-pct: 0.3
+      position-size-pct: 50
+      max-concurrent: 1
+      max-hold-minutes: 3
+      rsi-oversold: 25
+      rsi-overbought: 75
+      momentum-threshold: 0.05
+      vwap-proximity-pct: 0.3
+      rsi-period: 7
+      vwap-period: 14
+      ema-period: 9
+      lookback: 20
     # Auto-adjust: disable setups with poor performance automatically
     auto-adjust-enabled: true
     auto-adjust-min-trades: 20

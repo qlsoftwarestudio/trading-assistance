@@ -357,8 +357,8 @@ public class HypeStrategy {
 
             // Delta volume filter: for LONG, require net buying pressure (except breakouts which imply it)
             if (useDeltaVolumeFilter && !breakoutCondition && deltaVolumeRatio < deltaVolumeThreshold) {
-                logger.info("❌ LONG {} rejected: sell pressure dominant (delta ratio: {:.2f}, need > {:.2f}).",
-                        entryType, deltaVolumeRatio, deltaVolumeThreshold);
+                logger.info("❌ LONG {} rejected: sell pressure dominant (delta ratio: {}, need > {}).",
+                        entryType, String.format("%.2f", deltaVolumeRatio), String.format("%.2f", deltaVolumeThreshold));
                 return;
             }
 
@@ -566,8 +566,8 @@ public class HypeStrategy {
 
             // Delta volume filter: for SHORT, require net selling pressure (except breakouts which imply it)
             if (useDeltaVolumeFilter && !breakoutCondition && deltaVolumeRatio > -deltaVolumeThreshold) {
-                logger.info("❌ SHORT {} rejected: buy pressure dominant (delta ratio: {:.2f}, need < -{:.2f}).",
-                        entryType, deltaVolumeRatio, deltaVolumeThreshold);
+                logger.info("❌ SHORT {} rejected: buy pressure dominant (delta ratio: {}, need < -{}).",
+                        entryType, String.format("%.2f", deltaVolumeRatio), String.format("%.2f", deltaVolumeThreshold));
                 return;
             }
 

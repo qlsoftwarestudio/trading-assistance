@@ -66,8 +66,11 @@ public class SignalPerformanceService {
             for (Map.Entry<String, List<SignalResult>> entry : resultsByPattern.entrySet()) {
                 PatternStats stats = calculateStats(entry.getValue());
                 patternCache.put(entry.getKey(), stats);
-                logger.info("Pattern '{}' -> {} samples, winRate={:.1f}%, profitFactor={:.2f}, avgPnl={:.2f}",
-                        entry.getKey(), stats.sampleSize, stats.winRate * 100, stats.profitFactor, stats.avgPnl);
+                logger.info("Pattern '{}' -> {} samples, winRate={}%, profitFactor={}, avgPnl={}",
+                        entry.getKey(), stats.sampleSize,
+                        String.format("%.1f", stats.winRate * 100),
+                        String.format("%.2f", stats.profitFactor),
+                        String.format("%.2f", stats.avgPnl));
             }
 
         } catch (Exception e) {
