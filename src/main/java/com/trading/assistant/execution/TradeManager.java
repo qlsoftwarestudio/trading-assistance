@@ -105,8 +105,35 @@ public class TradeManager {
     @Value("${trading.strategy.projection-candles-ahead:6}")
     private int projectionCandlesAhead;
 
+    // Dynamic position sizing based on volatility
+    @Value("${trading.strategy.position-size-volatility-adjust:false}")
+    private boolean positionSizeVolatilityAdjust;
+
+    @Value("${trading.strategy.position-size-atr-lookback:50}")
+    private int positionSizeAtrLookback;
+
+    @Value("${trading.strategy.position-size-high-vol-factor:0.5}")
+    private double positionSizeHighVolFactor;
+
+    @Value("${trading.strategy.position-size-low-vol-factor:1.5}")
+    private double positionSizeLowVolFactor;
+
+    @Value("${trading.strategy.position-size-volatility-threshold:1.5}")
+    private double positionSizeVolatilityThreshold;
+
+    // Momentum exit: close trade if momentum stalls
+    @Value("${trading.strategy.momentum-exit-enabled:true}")
+    private boolean momentumExitEnabled;
+
+    @Value("${trading.strategy.momentum-exit-drop-pct:70.0}")
+    private double momentumExitDropPct;
+
+    @Value("${trading.strategy.momentum-exit-progress-threshold:0.5}")
+    private double momentumExitProgressThreshold;
+
     private final Map<String, LocalDateTime> lastSlTime = new ConcurrentHashMap<>();
     private final Map<Long, BigDecimal> tradePeakPrices = new ConcurrentHashMap<>();
+    private final Map<Long, Double> tradeEntryMomentum = new ConcurrentHashMap<>();
 
     private boolean isDailyLossLimitHit(BigDecimal balance) {
         try {
@@ -202,14 +229,21 @@ public class TradeManager {
 
             // Calculate position size: distribute available capital among remaining slots
             int remainingSlots = maxConcurrentTrades - (int) openCount;
+
+            // Volatility-adjusted position sizing
+            double effectivePositionSizePct = positionSizePct;
+            if (positionSizeVolatilityAdjust) {
+                effectivePositionSizePct = calculateVolatilityAdjustedPositionSizePct();
+            }
+
             BigDecimal rawPositionSize = balance
-                    .multiply(BigDecimal.valueOf(positionSizePct))
+                    .multiply(BigDecimal.valueOf(effectivePositionSizePct))
                     .divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
             BigDecimal positionSize = rawPositionSize
                     .divide(BigDecimal.valueOf(remainingSlots), 8, RoundingMode.HALF_UP);
 
-            logger.info("Capital allocation - Balance: ${}, Raw pos size: ${}, Slots: {}/{}, Adjusted pos size: ${}",
-                    balance, rawPositionSize, openCount, maxConcurrentTrades, positionSize);
+            logger.info("Capital allocation - Balance: ${}, Raw pos size: ${} ({}%), Slots: {}/{}, Adjusted pos size: ${}",
+                    balance, rawPositionSize, String.format("%.1f", effectivePositionSizePct), openCount, maxConcurrentTrades, positionSize);
 
             // Calculate quantity (consider leverage)
             BigDecimal notional = positionSize.multiply(BigDecimal.valueOf(leverage));
@@ -228,7 +262,7 @@ public class TradeManager {
             boolean isLong = "LONG".equals(action);
 
             if (useAtrStop) {
-                List<Kline> klines = binanceClient.getKlines(symbol, "15m", atrPeriod + 5);
+                List<Kline> klines = binanceClient.getKlines(symbol, "5m", atrPeriod + 5);
                 double atr = indicatorCalculator.calculateATR(klines, atrPeriod);
                 if (atr > 0) {
                     stopLoss = indicatorCalculator.atrBasedStopLoss(currentPrice, atr, (int) Math.round(atrMultiplier), isLong)
@@ -275,8 +309,11 @@ public class TradeManager {
                 trade.setBinanceOrderId(orderId);
                 tradeRepository.save(trade);
 
-                // Initialize trailing stop tracking
+                // Initialize trailing stop tracking and momentum tracking
                 tradePeakPrices.put(trade.getId(), currentPrice);
+                if (signal.getMomentum() != null) {
+                    tradeEntryMomentum.put(trade.getId(), signal.getMomentum().doubleValue());
+                }
 
                 // Place conditional SL and TP orders on Binance (server-side execution)
                 String slSide = isLong ? "SELL" : "BUY";
@@ -325,6 +362,7 @@ public class TradeManager {
             // Safety: ensure conditional orders exist on Binance (handles testnet fallback delays or failures)
             ensureConditionalOrders(trade);
             updateTrailingStop(trade, currentPrice, currentKline, projection);
+            checkMomentumExit(trade, currentPrice, currentKline);
             checkTimeExit(trade, currentPrice);
         }
     }
@@ -572,6 +610,60 @@ public class TradeManager {
     }
 
     /**
+     * Momentum exit: close trade if momentum has stalled significantly.
+     * When initial momentum drops by X% and price hasn't progressed toward TP, exit early.
+     */
+    private void checkMomentumExit(Trade trade, BigDecimal currentPrice, Kline currentKline) {
+        if (!momentumExitEnabled) return;
+        if (currentKline == null) return;
+
+        Double entryMomentum = tradeEntryMomentum.get(trade.getId());
+        if (entryMomentum == null || entryMomentum == 0.0) return;
+
+        // Calculate current momentum from current kline
+        double currentMomentum = currentKline.getClose()
+                .subtract(currentKline.getOpen())
+                .divide(currentKline.getOpen(), 8, RoundingMode.HALF_UP)
+                .multiply(BigDecimal.valueOf(100))
+                .doubleValue();
+
+        // For LONG: momentum should remain positive. For SHORT: negative.
+        boolean isLong = "LONG".equals(trade.getAction());
+        double momentumDrop;
+        if (isLong) {
+            if (entryMomentum > 0) {
+                momentumDrop = (entryMomentum - Math.max(0, currentMomentum)) / entryMomentum;
+            } else {
+                momentumDrop = 1.0; // Entry momentum was negative for LONG = bad
+            }
+        } else {
+            if (entryMomentum < 0) {
+                momentumDrop = (Math.abs(entryMomentum) - Math.max(0, -currentMomentum)) / Math.abs(entryMomentum);
+            } else {
+                momentumDrop = 1.0; // Entry momentum was positive for SHORT = bad
+            }
+        }
+
+        // Check progress toward TP
+        BigDecimal entryPrice = trade.getEntryPrice();
+        BigDecimal takeProfit = trade.getTakeProfit();
+        double progressToTp;
+        if (isLong) {
+            progressToTp = currentPrice.subtract(entryPrice).doubleValue()
+                    / takeProfit.subtract(entryPrice).doubleValue();
+        } else {
+            progressToTp = entryPrice.subtract(currentPrice).doubleValue()
+                    / entryPrice.subtract(takeProfit).doubleValue();
+        }
+
+        if (momentumDrop >= momentumExitDropPct / 100.0 && progressToTp < momentumExitProgressThreshold) {
+            logger.info("📉 Momentum exit for Trade {}. Entry momentum: {:.4f}%, Current: {:.4f}%, Drop: {:.0f}%, Progress to TP: {:.1f}%",
+                    trade.getId(), entryMomentum, currentMomentum, momentumDrop * 100, progressToTp * 100);
+            closeTrade(trade, currentPrice, "MOMENTUM_EXIT");
+        }
+    }
+
+    /**
      * Handle order updates from Binance User Data Stream (WebSocket).
      * Called when SL or TP is executed server-side.
      */
@@ -670,6 +762,7 @@ public class TradeManager {
                 }
 
                 tradePeakPrices.remove(trade.getId());
+                tradeEntryMomentum.remove(trade.getId());
 
                 telegramBot.sendTradeNotification(trade, "EXIT");
 
@@ -681,6 +774,56 @@ public class TradeManager {
 
         } catch (Exception e) {
             logger.error("Error closing trade {}: {}", trade.getId(), e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Calculate volatility-adjusted position size percentage.
+     * When ATR is high (volatile market), reduce position size to limit risk.
+     * When ATR is low (calm market), increase position size to maximize returns.
+     */
+    private double calculateVolatilityAdjustedPositionSizePct() {
+        try {
+            List<Kline> klines = binanceClient.getKlines(symbol, "5m", positionSizeAtrLookback + 5);
+            if (klines == null || klines.size() < positionSizeAtrLookback) {
+                logger.debug("Not enough klines for volatility adjustment, using default size");
+                return positionSizePct;
+            }
+
+            // Current ATR (recent volatility)
+            double currentAtr = indicatorCalculator.calculateATR(
+                    klines.subList(klines.size() - atrPeriod - 1, klines.size()), atrPeriod);
+
+            // Reference ATR (longer-term median volatility)
+            double referenceAtr = indicatorCalculator.calculateATR(klines, atrPeriod);
+
+            if (referenceAtr <= 0 || currentAtr <= 0) {
+                return positionSizePct;
+            }
+
+            double ratio = currentAtr / referenceAtr;
+            double factor;
+
+            if (ratio >= positionSizeVolatilityThreshold) {
+                // High volatility: reduce size
+                factor = positionSizeHighVolFactor;
+                logger.info("📉 High volatility detected (ATR ratio={:.2f}), reducing position size by {:.0f}%",
+                        ratio, (1 - factor) * 100);
+            } else if (ratio <= 1.0 / positionSizeVolatilityThreshold) {
+                // Low volatility: increase size (but not more than 50% above base)
+                factor = positionSizeLowVolFactor;
+                logger.info("📈 Low volatility detected (ATR ratio={:.2f}), increasing position size by {:.0f}%",
+                        ratio, (factor - 1) * 100);
+            } else {
+                // Normal volatility: use base size
+                factor = 1.0;
+            }
+
+            return positionSizePct * factor;
+
+        } catch (Exception e) {
+            logger.warn("Error calculating volatility-adjusted size: {}. Using default.", e.getMessage());
+            return positionSizePct;
         }
     }
 

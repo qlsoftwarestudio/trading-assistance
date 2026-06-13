@@ -53,7 +53,7 @@ trading:
     max-hold-minutes: 35
     require-rsi-reversal: true
     # Risk Management
-    use-atr-stop: false
+    use-atr-stop: true
     trailing-stop-pct: 0.6
     trailing-activation-pct: 0.6
     breakeven-activation-pct: 0.4
@@ -61,6 +61,16 @@ trading:
     time-based-trail-pct: 0.5
     time-threshold-min: 10
     sl-cooldown-minutes: 10
+    # Dynamic position sizing: adjust size based on volatility (ATR)
+    position-size-volatility-adjust: true
+    position-size-atr-lookback: 50
+    position-size-high-vol-factor: 0.5
+    position-size-low-vol-factor: 1.5
+    position-size-volatility-threshold: 1.5
+    # Momentum exit: close trade if momentum stalls
+    momentum-exit-enabled: true
+    momentum-exit-drop-pct: 70.0
+    momentum-exit-progress-threshold: 0.5
     use-vwap-filter: true
     vwap-period: 20
     vwap-band-pct: 1.5
@@ -83,6 +93,12 @@ trading:
     rsi-overbought-uptrend: 85
     short-min-volume-uptrend: 2.0
     short-min-conditions-uptrend: 2
+
+  # Trading Session Filter (skip low-volume sessions) — disabled by default
+  session-filter:
+    enabled: false
+    asia-start: 2      # 02:00 UTC
+    asia-end: 8        # 08:00 UTC
 
   # Market Context / Multi-timeframe Analysis
   context:

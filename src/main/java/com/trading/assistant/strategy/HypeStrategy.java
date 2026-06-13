@@ -16,6 +16,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.List;
 
 @Component
@@ -146,10 +148,25 @@ public class HypeStrategy {
     @Value("${trading.strategy.short-min-conditions-uptrend:2}")
     private int shortMinConditionsUptrend;
 
+    @Value("${trading.session-filter.enabled:true}")
+    private boolean sessionFilterEnabled;
+
+    @Value("${trading.session-filter.asia-start:2}")
+    private int asiaStartHour;
+
+    @Value("${trading.session-filter.asia-end:8}")
+    private int asiaEndHour;
+
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
             logger.info("Strategy is disabled. Skipping execution.");
+            return;
+        }
+
+        // Session filter: skip Asian session (low volume, wide spreads)
+        if (sessionFilterEnabled && isAsianSession()) {
+            logger.info("Asian session ({}:00-{}:00 UTC) — strategy paused.", asiaStartHour, asiaEndHour);
             return;
         }
 
@@ -406,8 +423,17 @@ public class HypeStrategy {
                 && rsiReversingDown;
         boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
 
+        // Trend-following pullback: short the bounce within a downtrending regression channel
+        boolean trendDipShortCondition = useTrendDipLong
+                && channel != null
+                && channel.getDirection() == LinearRegressionChannel.ChannelDirection.DOWN
+                && channel.getSlopePct() <= -trendDipChannelSlope
+                && channel.getPricePosition() > 0.60
+                && rsi > (100 - trendDipRsiThreshold);
+
         // In strong uptrend, require at least 2 strong conditions (high RSI + high volume or breakout)
-        if (strongUptrend && (meanReversionCondition || breakoutCondition)) {
+        // Trend-dip is excluded from uptrend protection (shorting into downtrend is the point)
+        if (strongUptrend && (meanReversionCondition || breakoutCondition) && !trendDipShortCondition) {
             int strongConditions = 0;
             if (rsi > effectiveRsiOverbought) strongConditions++;
             if (relativeVolume >= shortMinVolumeUptrend) strongConditions++;
@@ -420,7 +446,7 @@ public class HypeStrategy {
             }
         }
 
-        if (meanReversionCondition || breakoutCondition) {
+        if (meanReversionCondition || breakoutCondition || trendDipShortCondition) {
             if (tradeManager.hasOpenPosition("SHORT")) {
                 logger.info("SHORT position already open. Skipping new SHORT signal.");
                 return;
@@ -485,10 +511,20 @@ public class HypeStrategy {
                 }
             }
 
-            String entryType = meanReversionCondition ? "Mean-Reversion" : "Breakout";
-            logger.info("🔴 SHORT SIGNAL DETECTED ({})! RSI: {} (prev: {}), SellZone: {}, RevDown: {}, Breakout: {}, Volume: {}x, Momentum: {}",
+            // Trend-Dip in uptrend filter: avoid shorting bounces when daily trend is UP
+            if (trendDipShortCondition && ctx != null && ctx.getTrend1d() == MarketContext.TrendDirection.UP) {
+                logger.info("❌ SHORT rejected: trend1d is UP, avoiding shorting bounce in bullish daily (RSI: {})",
+                        String.format("%.2f", rsi));
+                return;
+            }
+
+            String entryType;
+            if (meanReversionCondition) entryType = "Mean-Reversion";
+            else if (breakoutCondition) entryType = "Breakout";
+            else entryType = "Trend-Dip";
+            logger.info("🔴 SHORT SIGNAL DETECTED ({})! RSI: {} (prev: {}), SellZone: {}, RevDown: {}, Breakout: {}, TrendDip: {}, Volume: {}x, Momentum: {}",
                     entryType, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
-                    inSellZone, rsiReversingDown, breakoutBelow,
+                    inSellZone, rsiReversingDown, breakoutBelow, trendDipShortCondition,
                     String.format("%.2f", relativeVolume), String.format("%.4f", momentum));
 
             Signal signal = new Signal(
@@ -507,7 +543,7 @@ public class HypeStrategy {
             // Bypassed when extreme overbought or volume spike override is active (blow-off top event)
             boolean regressionOverrideShort = extremeOverbought || volumeSpikeShort;
 
-            if (useRegressionFilter && channel != null && meanReversionCondition) {
+            if (useRegressionFilter && channel != null && (meanReversionCondition || trendDipShortCondition)) {
                 if (channel.getPricePosition() < 0.35) {
                     if (regressionOverrideShort) {
                         logger.info("⚡ Regression channel bypassed: price at {}% but extreme signal active (overbought={} volSpike={})",
@@ -535,8 +571,11 @@ public class HypeStrategy {
         } else {
             boolean channelUp = channel != null && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP
                     && channel.getSlopePct() >= antiPumpSlopeThreshold;
-            logger.info("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}, RevDown:{}) Breakout(Below:{}, Vol>1:{}) AntiPump(channelUP+strongSlope:{}, slope:{}%){}",
+            logger.info("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}, RevDown:{}) Breakout(Below:{}, Vol>1:{}) TrendDip(channelDown:{}, pos>60%:{}, RSI>{}:{}) AntiPump(channelUP+strongSlope:{}, slope:{}%){}",
                     effectiveRsiOverbought, rsi > effectiveRsiOverbought, inSellZone, rsiReversingDown, breakoutBelow, relativeVolume >= 1.0,
+                    channel != null && channel.getDirection() == LinearRegressionChannel.ChannelDirection.DOWN && channel.getSlopePct() <= -trendDipChannelSlope,
+                    channel != null && channel.getPricePosition() > 0.60,
+                    100 - trendDipRsiThreshold, rsi > (100 - trendDipRsiThreshold),
                     channelUp, channel != null ? String.format("%.3f", channel.getSlopePct()) : "N/A",
                     strongUptrend ? " [uptrend-mode]" : "");
         }
@@ -553,6 +592,16 @@ public class HypeStrategy {
         signal.setConfluence(ctx.isConfluence());
         signal.setDistanceToSupportPct(BigDecimal.valueOf(ctx.getDistanceToSupportPct()));
         signal.setDistanceToResistancePct(BigDecimal.valueOf(ctx.getDistanceToResistancePct()));
+    }
+
+    /**
+     * Check if current time is within Asian trading session.
+     * Asian session (02:00-08:00 UTC) typically has low volume and wide spreads.
+     */
+    private boolean isAsianSession() {
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        int hour = now.getHour();
+        return hour >= asiaStartHour && hour < asiaEndHour;
     }
 
     public void executeStrategyManual() {
