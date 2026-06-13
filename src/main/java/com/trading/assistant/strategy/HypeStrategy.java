@@ -257,6 +257,13 @@ public class HypeStrategy {
                 return;
             }
 
+            // Volume filter: reject mean-reversion LONG when volume is too low (no buying pressure)
+            if (meanReversionCondition && relativeVolume < 0.5 && !volumeSpikeLong) {
+                logger.info("❌ LONG rejected: volume too low for mean-reversion ({}x, need >= 0.5x). RSI={}, no buying pressure.",
+                        String.format("%.2f", relativeVolume), String.format("%.2f", rsi));
+                return;
+            }
+
             // VWAP filter: LONG only within VWAP ± band%
             if (useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
                 double price = currentPrice.doubleValue();
@@ -416,6 +423,13 @@ public class HypeStrategy {
         if (meanReversionCondition || breakoutCondition) {
             if (tradeManager.hasOpenPosition("SHORT")) {
                 logger.info("SHORT position already open. Skipping new SHORT signal.");
+                return;
+            }
+
+            // Volume filter: reject mean-reversion SHORT when volume is too low (no selling pressure)
+            if (meanReversionCondition && relativeVolume < 0.5 && !volumeSpikeShort) {
+                logger.info("❌ SHORT rejected: volume too low for mean-reversion ({}x, need >= 0.5x). RSI={}, no selling pressure.",
+                        String.format("%.2f", relativeVolume), String.format("%.2f", rsi));
                 return;
             }
 
