@@ -258,9 +258,12 @@ public class HypeStrategy {
                 deltaVolumeRatio = deltaVolume / currentKline.getVolume().doubleValue();
             }
             if (useDeltaVolumeFilter) {
-                logger.info("📊 Delta volume: {:.2f} (ratio: {:.2f}) - Buy pressure: {}",
-                        deltaVolume, deltaVolumeRatio,
-                        deltaVolumeRatio > 0 ? "DOMINANT" : (deltaVolumeRatio < 0 ? "SELLING" : "NEUTRAL"));
+                String pressure = deltaVolumeRatio > 0.20 ? "BUY_DOMINANT"
+                        : (deltaVolumeRatio < -0.20 ? "SELL_DOMINANT" : "NEUTRAL");
+                logger.info("📊 Delta volume: {} (ratio: {}) - Pressure: {}",
+                        String.format("%.2f", deltaVolume),
+                        String.format("%.2f", deltaVolumeRatio),
+                        pressure);
             }
 
             evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio);
