@@ -36,7 +36,7 @@ public class BinanceClient {
     @Value("${binance.api.secret:}")
     private String apiSecret;
 
-    @Value("${binance.api.base-url:https://testnet.binancefuture.com}")
+    @Value("${binance.api.base-url:https://demo-fapi.binance.com}")
     private String baseUrl;
 
     @Value("${trading.strategy.symbol:HYPEUSDT}")
