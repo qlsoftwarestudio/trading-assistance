@@ -19,7 +19,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class BinanceClient {
@@ -48,6 +50,7 @@ public class BinanceClient {
     private WebClient webClient;
     private boolean configured = false;
     private int quantityPrecision = 1;
+    private final Map<String, String> algoOrderTypes = new ConcurrentHashMap<>();
 
     @PostConstruct
     public void init() {
@@ -372,7 +375,6 @@ public class BinanceClient {
             params.put("reduceOnly", "true");
             params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
 
-            // For STOP/TAKE_PROFIT (limit conditional), add price and timeInForce
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
                 params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
                 params.put("timeInForce", "GTC");
@@ -386,9 +388,8 @@ public class BinanceClient {
                     .onStatus(status -> status.is4xxClientError(), clientResponse ->
                         clientResponse.bodyToMono(String.class).doOnNext(body -> {
                             logger.error("Binance 4xx placing {} ({}): {}", type, clientResponse.statusCode(), body);
-                            // Check if this is the "not supported" error for testnet fallback
-                            if (body.contains("-4120") || body.contains("not supported")) {
-                                logger.warn("Order type {} not supported on this endpoint, caller will try fallback", type);
+                            if (body.contains("-4120") || body.contains("not supported") || body.contains("Algo Order API")) {
+                                logger.warn("Order type {} not supported on /fapi/v1/order, will try /fapi/v1/algoOrder", type);
                             }
                         }).then(clientResponse.createException())
                     )
@@ -403,7 +404,6 @@ public class BinanceClient {
             logger.info("{} order placed: {}", type, response);
             return extractOrderId(response);
         } catch (Exception e) {
-            // Don't log full stack trace for "not supported" errors - caller will handle fallback
             String errorDetails = e.getMessage();
             if (e instanceof org.springframework.web.reactive.function.client.WebClientResponseException) {
                 org.springframework.web.reactive.function.client.WebClientResponseException wcre =
@@ -413,11 +413,59 @@ public class BinanceClient {
                     errorDetails = body;
                 }
             }
-            if (errorDetails != null && (errorDetails.contains("-4120") || errorDetails.contains("not supported"))) {
-                logger.warn("Order type {} not supported on testnet: {}", type, errorDetails);
-                return null;
+            if (errorDetails != null && (errorDetails.contains("-4120") || errorDetails.contains("not supported") || errorDetails.contains("Algo Order API"))) {
+                logger.warn("Order type {} not supported on /fapi/v1/order, falling back to /fapi/v1/algoOrder: {}", type, errorDetails);
+                return placeConditionalOrderViaAlgo(side, positionSide, quantity, stopPrice, type);
             }
             logger.error("Error placing {} order: {}", type, e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private String placeConditionalOrderViaAlgo(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice, String type) {
+        try {
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", symbol);
+            params.put("side", side);
+            if (hedgeMode) {
+                params.put("positionSide", positionSide);
+            }
+            params.put("type", type);
+            params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
+            params.put("reduceOnly", "true");
+            params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+
+            if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
+                params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+                params.put("timeInForce", "GTC");
+            }
+
+            String query = buildSignedQuery(params);
+            String response = webClient.post()
+                    .uri("/fapi/v1/algoOrder?" + query)
+                    .header("X-MBX-APIKEY", apiKey)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body ->
+                            logger.error("Binance 4xx placing algo {} ({}): {}", type, clientResponse.statusCode(), body)
+                        ).then(clientResponse.createException())
+                    )
+                    .onStatus(status -> status.is5xxServerError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body ->
+                            logger.error("Binance 5xx placing algo {} ({}): {}", type, clientResponse.statusCode(), body)
+                        ).then(clientResponse.createException())
+                    )
+                    .bodyToMono(String.class)
+                    .block();
+
+            logger.info("Algo {} order placed: {}", type, response);
+            String orderId = extractOrderId(response);
+            if (orderId != null) {
+                algoOrderTypes.put(orderId, type);
+            }
+            return orderId;
+        } catch (Exception e) {
+            logger.error("Error placing algo {} order: {}", type, e.getMessage(), e);
             return null;
         }
     }
@@ -442,7 +490,37 @@ public class BinanceClient {
             logger.info("Order {} cancelled.", orderId);
             return true;
         } catch (Exception e) {
-            logger.error("Error cancelling order {}: {}", orderId, e.getMessage());
+            logger.warn("Failed to cancel order {} via /fapi/v1/order: {}, trying /fapi/v1/algoOrder", orderId, e.getMessage());
+            return cancelAlgoOrder(orderId);
+        }
+    }
+
+    private boolean cancelAlgoOrder(String orderId) {
+        try {
+            String type = algoOrderTypes.get(orderId);
+            if (type == null) {
+                logger.warn("Unknown algo order type for {}, trying STOP", orderId);
+                type = "STOP";
+            }
+
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", symbol);
+            params.put("algoId", orderId);
+            params.put("type", type);
+            String query = buildSignedQuery(params);
+
+            webClient.delete()
+                    .uri("/fapi/v1/algoOrder?" + query)
+                    .header("X-MBX-APIKEY", apiKey)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            logger.info("Algo order {} cancelled.", orderId);
+            algoOrderTypes.remove(orderId);
+            return true;
+        } catch (Exception e) {
+            logger.error("Error cancelling algo order {}: {}", orderId, e.getMessage());
             return false;
         }
     }
