@@ -628,16 +628,24 @@ public class TradeManager {
             // Check Stop Loss
             if (isLong) {
                 if (currentPrice.compareTo(trade.getStopLoss()) <= 0) {
-                    logger.info("⛔ Local SL hit for LONG Trade {}. Price {} <= SL {}",
-                            trade.getId(), currentPrice, trade.getStopLoss());
-                    closeTrade(trade, currentPrice, "STOP_LOSS");
+                    // If SL was raised by trailing stop and we're above entry, it's a profitable trailing exit
+                    boolean slMoved = trade.getOriginalStopLoss() != null && trade.getStopLoss().compareTo(trade.getOriginalStopLoss()) > 0;
+                    boolean profitable = currentPrice.compareTo(trade.getEntryPrice()) > 0;
+                    String reason = (slMoved && profitable) ? "TRAILING_STOP" : "STOP_LOSS";
+                    logger.info("⛔ Local SL hit for LONG Trade {}. Price {} <= SL {} (original SL: {}, reason: {})",
+                            trade.getId(), currentPrice, trade.getStopLoss(), trade.getOriginalStopLoss(), reason);
+                    closeTrade(trade, currentPrice, reason);
                     return true;
                 }
             } else {
                 if (currentPrice.compareTo(trade.getStopLoss()) >= 0) {
-                    logger.info("⛔ Local SL hit for SHORT Trade {}. Price {} >= SL {}",
-                            trade.getId(), currentPrice, trade.getStopLoss());
-                    closeTrade(trade, currentPrice, "STOP_LOSS");
+                    // If SL was lowered by trailing stop and we're below entry, it's a profitable trailing exit
+                    boolean slMoved = trade.getOriginalStopLoss() != null && trade.getStopLoss().compareTo(trade.getOriginalStopLoss()) < 0;
+                    boolean profitable = currentPrice.compareTo(trade.getEntryPrice()) < 0;
+                    String reason = (slMoved && profitable) ? "TRAILING_STOP" : "STOP_LOSS";
+                    logger.info("⛔ Local SL hit for SHORT Trade {}. Price {} >= SL {} (original SL: {}, reason: {})",
+                            trade.getId(), currentPrice, trade.getStopLoss(), trade.getOriginalStopLoss(), reason);
+                    closeTrade(trade, currentPrice, reason);
                     return true;
                 }
             }
