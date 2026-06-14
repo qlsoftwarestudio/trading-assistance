@@ -55,9 +55,9 @@ trading:
     # Risk Management
     use-atr-stop: true
     trailing-stop-pct: 0.6
-    trailing-activation-pct: 0.6
-    breakeven-activation-pct: 0.4
-    min-profit-pct: 0.08
+    trailing-activation-pct: 0.4
+    breakeven-activation-pct: 0.25
+    min-profit-pct: 0.15
     time-based-trail-pct: 0.5
     time-threshold-min: 10
     sl-cooldown-minutes: 10
