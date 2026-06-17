@@ -110,6 +110,7 @@ trading:
     atr-period: 10
     projection-candles-ahead: 6
     atr-multiplier: 1.5
+    max-atr-sl-pct: 2.5
     use-regression-filter: true
     regression-lookback: 50
     use-trend-dip-long: true

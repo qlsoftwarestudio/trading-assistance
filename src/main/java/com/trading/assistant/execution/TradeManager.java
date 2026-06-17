@@ -62,6 +62,9 @@ public class TradeManager {
     @Value("${trading.strategy.atr-multiplier:2.0}")
     private double atrMultiplier;
 
+    @Value("${trading.strategy.max-atr-sl-pct:2.5}")
+    private double maxAtrSlPct;
+
     @Value("${trading.strategy.take-profit-pct:8.0}")
     private double takeProfitPct;
 
@@ -479,19 +482,28 @@ public class TradeManager {
                 if (atr > 0) {
                     stopLoss = indicatorCalculator.atrBasedStopLoss(currentPrice, atr, (int) Math.round(atrMultiplier), isLong)
                             .setScale(8, RoundingMode.HALF_UP);
-                    // TP = 2x risk (reward/risk = 2:1)
-                    BigDecimal risk = isLong ? currentPrice.subtract(stopLoss) : stopLoss.subtract(currentPrice);
-                    if (isLong) {
-                        takeProfit = currentPrice.add(risk.multiply(BigDecimal.valueOf(2)));
+                    // Cap: if ATR-based SL is too far from entry, fall back to fixed SL
+                    double slDistancePct = isLong
+                            ? (currentPrice.doubleValue() - stopLoss.doubleValue()) / currentPrice.doubleValue() * 100.0
+                            : (stopLoss.doubleValue() - currentPrice.doubleValue()) / currentPrice.doubleValue() * 100.0;
+                    if (slDistancePct > maxAtrSlPct) {
+                        logger.warn("ATR-based SL too wide ({:.2f}% > {:.1f}% max, ATR={:.4f}) — using fixed SL",
+                                slDistancePct, maxAtrSlPct, atr);
+                        stopLoss = calculateFixedStopLoss(currentPrice, isLong);
+                        takeProfit = calculateFixedTakeProfit(currentPrice, isLong);
                     } else {
-                        takeProfit = currentPrice.subtract(risk.multiply(BigDecimal.valueOf(2)));
+                        // TP = 2x risk (reward/risk = 2:1)
+                        BigDecimal risk = isLong ? currentPrice.subtract(stopLoss) : stopLoss.subtract(currentPrice);
+                        if (isLong) {
+                            takeProfit = currentPrice.add(risk.multiply(BigDecimal.valueOf(2)));
+                        } else {
+                            takeProfit = currentPrice.subtract(risk.multiply(BigDecimal.valueOf(2)));
+                        }
+                        takeProfit = takeProfit.setScale(8, RoundingMode.HALF_UP);
+                        logger.info("ATR-based SL/TP for {}: ATR={:.4f}, SL={} ({:.2f}%), TP={} ({:.2f}%)",
+                                action, atr, stopLoss, slDistancePct,
+                                takeProfit, slDistancePct * 2);
                     }
-                    takeProfit = takeProfit.setScale(8, RoundingMode.HALF_UP);
-                    logger.info("ATR-based SL/TP for {}: ATR={:.4f}, SL={} ({}%), TP={} ({}%)",
-                            action, atr, stopLoss,
-                            indicatorCalculator.distanceToLevelPct(currentPrice, stopLoss),
-                            takeProfit,
-                            indicatorCalculator.distanceToLevelPct(currentPrice, takeProfit));
                 } else {
                     logger.warn("ATR calculation failed, falling back to fixed pct stop");
                     stopLoss = calculateFixedStopLoss(currentPrice, isLong);
