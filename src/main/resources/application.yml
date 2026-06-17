@@ -76,7 +76,7 @@ trading:
     hunter:
       mode-enabled: true
       min-volatility-pct: 1.0
-      max-spread-pct: 0.05
+      max-spread-pct: 5.0
       min-volume-ratio: 1.5
       sl-pct: 0.1
       tp-pct: 0.3
