@@ -70,17 +70,17 @@ public class ScalpStrategy {
     private int lookbackBars;
 
     /**
-     * Execute scalp strategy every 1 minute.
+     * Execute scalp strategy every 15 seconds (4x per 1m candle).
      * Only runs if hunter mode is enabled and market conditions pass the gate.
      */
-    @Scheduled(fixedRate = 60000)
+    @Scheduled(fixedRate = 15000)
     public void executeScalpStrategy() {
         if (!hunterModeEnabled) {
             logger.trace("Hunter mode disabled. Skipping scalp strategy.");
             return;
         }
 
-        logger.info("🎯 Executing HYPEUSDT 1m SCALPING strategy...");
+        logger.debug("🎯 Executing HYPEUSDT 1m SCALPING strategy...");
 
         try {
             // Fetch 1m klines (need enough for RSI, VWAP, EMA, ATR)
