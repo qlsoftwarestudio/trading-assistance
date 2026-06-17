@@ -174,4 +174,11 @@ public class PortfolioService {
     public DailyMetrics getLatestMetrics() {
         return dailyMetricsRepository.findTopByOrderByDateDesc().orElse(null);
     }
+
+    /**
+     * Get all daily metrics ordered by date ascending (for calendar/history view)
+     */
+    public List<DailyMetrics> getAllMetricsHistory() {
+        return dailyMetricsRepository.findAllByOrderByDateAsc();
+    }
 }

@@ -120,6 +120,15 @@ public class DashboardController {
     }
 
     /**
+     * Get all daily metrics history (for calendar/performance view)
+     */
+    @GetMapping("/dashboard/metrics/history")
+    @Operation(summary = "Get metrics history", description = "Returns all daily metrics ordered by date ascending")
+    public ResponseEntity<List<DailyMetrics>> getMetricsHistory() {
+        return ResponseEntity.ok(portfolioService.getAllMetricsHistory());
+    }
+
+    /**
      * Get strategy status
      */
     @GetMapping("/strategy/status")
