@@ -729,8 +729,17 @@ public class TradeManager {
         boolean tpReachable = projection != null &&
                 (isShort ? projection.isTpReachableShort() : projection.isTpReachableLong());
         if (tpReachable) {
-            logger.debug("Trade {}: TP within ATR range — trailing stop bypassed", trade.getId());
-            return;
+            BigDecimal currentPeak = tradePeakPrices.getOrDefault(trade.getId(), entryPrice);
+            double quickMove = isShort
+                    ? entryPrice.doubleValue() - currentPeak.doubleValue()
+                    : currentPeak.doubleValue() - entryPrice.doubleValue();
+            double activationAmt = entryPrice.doubleValue() * trailingActivationPct / 100.0;
+            if (quickMove < activationAmt) {
+                logger.debug("Trade {}: TP within ATR range, trailing not yet active — bypassed", trade.getId());
+                return;
+            }
+            logger.debug("Trade {}: TP within ATR range but trailing already active (+{}%) — continuing",
+                    trade.getId(), String.format("%.2f", quickMove / entryPrice.doubleValue() * 100.0));
         }
 
         BigDecimal peak = tradePeakPrices.getOrDefault(trade.getId(), entryPrice);
