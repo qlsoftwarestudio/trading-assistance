@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -69,6 +70,10 @@ public class PortfolioService {
                         new BigDecimal("999.99") : BigDecimal.ZERO);
             }
             
+            // Calculate max drawdown from cumulative equity curve
+            BigDecimal maxDrawdown = calculateMaxDrawdown();
+            metrics.setMaxDrawdown(maxDrawdown);
+
             dailyMetricsRepository.save(metrics);
             logger.info("Daily metrics calculated and saved for {}", today);
             
@@ -124,11 +129,43 @@ public class PortfolioService {
                     new BigDecimal("999.99") : BigDecimal.ZERO);
         }
         
+        // Max drawdown
+        summary.put("maxDrawdown", calculateMaxDrawdown());
+
         // Current price
         BigDecimal currentPrice = binanceClient.getCurrentPrice();
         summary.put("currentPrice", currentPrice);
         
         return summary;
+    }
+
+    /**
+     * Calculate max drawdown from cumulative PnL curve (peak-to-trough in $).
+     */
+    private BigDecimal calculateMaxDrawdown() {
+        try {
+            List<Trade> trades = tradeRepository.findClosedTradesOrderByExitTimeAsc();
+            if (trades == null || trades.isEmpty()) return BigDecimal.ZERO;
+
+            BigDecimal cumPnl = BigDecimal.ZERO;
+            BigDecimal peak = BigDecimal.ZERO;
+            BigDecimal maxDrawdown = BigDecimal.ZERO;
+
+            for (Trade trade : trades) {
+                cumPnl = cumPnl.add(trade.getPnl());
+                if (cumPnl.compareTo(peak) > 0) {
+                    peak = cumPnl;
+                }
+                BigDecimal drawdown = peak.subtract(cumPnl);
+                if (drawdown.compareTo(maxDrawdown) > 0) {
+                    maxDrawdown = drawdown;
+                }
+            }
+            return maxDrawdown.setScale(4, RoundingMode.HALF_UP);
+        } catch (Exception e) {
+            logger.error("Error calculating max drawdown: {}", e.getMessage());
+            return BigDecimal.ZERO;
+        }
     }
 
     /**

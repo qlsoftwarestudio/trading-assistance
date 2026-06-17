@@ -50,7 +50,7 @@ trading:
     leverage: 5
     enabled: true
     max-concurrent-trades: 2
-    max-hold-minutes: 35
+    max-hold-minutes: 45
     require-rsi-reversal: true
     # Risk Management
     use-atr-stop: true

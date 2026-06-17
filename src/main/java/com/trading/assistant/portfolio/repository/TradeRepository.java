@@ -43,5 +43,8 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
     @Query("SELECT COALESCE(SUM(t.pnl), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.exitTime >= :startOfDay")
     BigDecimal calculateDailyPnl(@Param("startOfDay") LocalDateTime startOfDay);
 
+    @Query("SELECT t FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl IS NOT NULL ORDER BY t.exitTime ASC")
+    List<Trade> findClosedTradesOrderByExitTimeAsc();
+
     long countByStatus(String status);
 }
