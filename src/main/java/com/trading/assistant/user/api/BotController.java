@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -79,8 +80,8 @@ public class BotController {
         bot.setApiKeyEncrypted(encryptionService.encrypt(request.get("apiKey")));
         bot.setApiSecretEncrypted(encryptionService.encrypt(request.get("apiSecret")));
         bot.setMaxCapitalUsd(request.containsKey("maxCapitalUsd")
-                ? Double.valueOf(request.get("maxCapitalUsd"))
-                : user.getPlan().getMaxCapitalUsd());
+                ? new BigDecimal(request.get("maxCapitalUsd"))
+                : BigDecimal.valueOf(user.getPlan().getMaxCapitalUsd()));
         botRepository.save(bot);
 
         return ResponseEntity.ok(Map.of(
