@@ -11,6 +11,7 @@ import com.trading.assistant.strategy.backtest.BacktestResult;
 import com.trading.assistant.strategy.backtest.BacktestService;
 import com.trading.assistant.strategy.model.Signal;
 import com.trading.assistant.strategy.repository.SignalRepository;
+import com.trading.assistant.user.service.JwtUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -50,6 +51,16 @@ public class DashboardController {
     @Autowired
     private TelegramBot telegramBot;
 
+    @Autowired
+    private JwtUtil jwtUtil;
+
+    private Long getUserIdFromToken(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) return null;
+        String token = authHeader.substring(7);
+        if (!jwtUtil.validateToken(token)) return null;
+        return jwtUtil.getUserId(token);
+    }
+
     /**
      * Health check
      */
@@ -68,8 +79,13 @@ public class DashboardController {
      */
     @GetMapping("/dashboard/summary")
     @Operation(summary = "Get portfolio summary", description = "Returns balance, P&L, win rate, and other metrics. Optional ?symbol= filter.")
-    public ResponseEntity<Map<String, Object>> getDashboardSummary(@RequestParam(required = false) String symbol) {
-        Map<String, Object> summary = portfolioService.getPortfolioSummary(symbol);
+    public ResponseEntity<?> getDashboardSummary(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                                  @RequestParam(required = false) String symbol) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+        }
+        Map<String, Object> summary = portfolioService.getPortfolioSummary(symbol, userId);
         return ResponseEntity.ok(summary);
     }
 
@@ -78,17 +94,19 @@ public class DashboardController {
      */
     @GetMapping("/dashboard/trades")
     @Operation(summary = "Get trades", description = "Returns paginated list of all trades. Optional ?symbol= filter.")
-    public ResponseEntity<Page<Trade>> getTrades(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
-            @RequestParam(required = false) String symbol) {
+    public ResponseEntity<?> getTrades(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                        @RequestParam(defaultValue = "0") int page,
+                                        @RequestParam(defaultValue = "20") int size,
+                                        @RequestParam(required = false) String symbol) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
 
         PageRequest pageRequest = PageRequest.of(page, size,
                 Sort.by(Sort.Direction.DESC, "entryTime"));
 
         Page<Trade> trades = symbol != null && !symbol.isEmpty()
-                ? tradeRepository.findBySymbolOrderByEntryTimeDesc(symbol, pageRequest)
-                : tradeRepository.findAllByOrderByEntryTimeDesc(pageRequest);
+                ? tradeRepository.findByUserIdAndSymbolOrderByEntryTimeDesc(userId, symbol, pageRequest)
+                : tradeRepository.findByUserIdOrderByEntryTimeDesc(userId, pageRequest);
         return ResponseEntity.ok(trades);
     }
 
@@ -97,10 +115,14 @@ public class DashboardController {
      */
     @GetMapping("/dashboard/trades/open")
     @Operation(summary = "Get open trades", description = "Returns list of currently open trades. Optional ?symbol= filter.")
-    public ResponseEntity<List<Trade>> getOpenTrades(@RequestParam(required = false) String symbol) {
+    public ResponseEntity<?> getOpenTrades(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                            @RequestParam(required = false) String symbol) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
         List<Trade> openTrades = symbol != null && !symbol.isEmpty()
-                ? tradeRepository.findBySymbolAndStatusOrderByEntryTimeDesc(symbol, "OPEN")
-                : tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
+                ? tradeRepository.findByUserIdAndSymbolAndStatusOrderByEntryTimeDesc(userId, symbol, "OPEN")
+                : tradeRepository.findByUserIdAndStatusOrderByEntryTimeDesc(userId, "OPEN");
         return ResponseEntity.ok(openTrades);
     }
 
@@ -109,10 +131,14 @@ public class DashboardController {
      */
     @GetMapping("/dashboard/signals")
     @Operation(summary = "Get recent signals", description = "Returns last 50 generated signals. Optional ?symbol= filter.")
-    public ResponseEntity<List<Signal>> getRecentSignals(@RequestParam(required = false) String symbol) {
+    public ResponseEntity<?> getRecentSignals(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                                 @RequestParam(required = false) String symbol) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
         List<Signal> signals = symbol != null && !symbol.isEmpty()
-                ? signalRepository.findTop50BySymbolOrderByGeneratedAtDesc(symbol)
-                : signalRepository.findTop50ByOrderByGeneratedAtDesc();
+                ? signalRepository.findTop50ByUserIdAndSymbolOrderByGeneratedAtDesc(userId, symbol)
+                : signalRepository.findTop50ByUserIdOrderByGeneratedAtDesc(userId);
         return ResponseEntity.ok(signals);
     }
 
@@ -121,8 +147,12 @@ public class DashboardController {
      */
     @GetMapping("/dashboard/metrics")
     @Operation(summary = "Get daily metrics", description = "Returns latest calculated daily metrics. Optional ?symbol= filter.")
-    public ResponseEntity<DailyMetrics> getDailyMetrics(@RequestParam(required = false) String symbol) {
-        DailyMetrics metrics = portfolioService.getLatestMetrics(symbol);
+    public ResponseEntity<?> getDailyMetrics(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                               @RequestParam(required = false) String symbol) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
+        DailyMetrics metrics = portfolioService.getLatestMetrics(symbol, userId);
         if (metrics != null) {
             return ResponseEntity.ok(metrics);
         } else {
@@ -135,8 +165,12 @@ public class DashboardController {
      */
     @GetMapping("/dashboard/metrics/history")
     @Operation(summary = "Get metrics history", description = "Returns all daily metrics ordered by date ascending. Optional ?symbol= filter.")
-    public ResponseEntity<List<DailyMetrics>> getMetricsHistory(@RequestParam(required = false) String symbol) {
-        return ResponseEntity.ok(portfolioService.getAllMetricsHistory(symbol));
+    public ResponseEntity<?> getMetricsHistory(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                                @RequestParam(required = false) String symbol) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
+        return ResponseEntity.ok(portfolioService.getAllMetricsHistory(symbol, userId));
     }
 
     /**

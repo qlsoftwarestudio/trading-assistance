@@ -19,6 +19,8 @@ import java.math.BigDecimal;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Component
 public class HypeStrategy {
@@ -55,6 +57,8 @@ public class HypeStrategy {
     private List<String> symbols;
 
     private String symbol; // current symbol being processed in multi-pair loop
+
+    private final Set<String> disabledSymbols = ConcurrentHashMap.newKeySet();
 
     @Value("${trading.strategy.rsi-length:5}")
     private int rsiLength;
@@ -189,6 +193,10 @@ public class HypeStrategy {
         }
 
         for (String sym : symbols) {
+            if (disabledSymbols.contains(sym)) {
+                logger.debug("Symbol {} is disabled by bot toggle. Skipping.", sym);
+                continue;
+            }
             this.symbol = sym;
             executeStrategyForSymbol(sym);
         }
@@ -400,6 +408,7 @@ public class HypeStrategy {
                     inSellZone
             );
             signal.setSetupType(entryType);
+            signal.setUserId(1L); // default admin tenant
 
             // Regression channel filter: for mean-reversion LONG, price should be in lower half of channel
             // Bypassed when extreme oversold or volume spike override is active (capitulation event)
@@ -609,6 +618,7 @@ public class HypeStrategy {
                     inSellZone
             );
             signal.setSetupType(entryType);
+            signal.setUserId(1L); // default admin tenant
 
             // Regression channel filter: for mean-reversion SHORT, price should be in upper half of channel
             // Bypassed when extreme overbought or volume spike override is active (blow-off top event)
@@ -743,11 +753,25 @@ public class HypeStrategy {
         return this.running;
     }
 
+    public void disableSymbol(String sym) {
+        disabledSymbols.add(sym);
+        logger.info("Symbol {} DISABLED via bot toggle.", sym);
+    }
+
+    public void enableSymbol(String sym) {
+        disabledSymbols.remove(sym);
+        logger.info("Symbol {} ENABLED via bot toggle.", sym);
+    }
+
+    public boolean isSymbolEnabled(String sym) {
+        return !disabledSymbols.contains(sym);
+    }
+
     public String getStrategyStatus() {
-        return String.format("Swing Multi-Pair: %s | Enabled: %s | Running: %s | " +
+        return String.format("Swing Multi-Pair: %s | Enabled: %s | Running: %s | Disabled: %s | " +
                         "RSI(%d) < %.0f / > %.0f | Lookback: %d | Killzone: %.1f%% | Min Momentum: %.1f%% | " +
                         "Context: %s",
-                symbols, strategyEnabled, running, rsiLength, rsiOversold, rsiOverbought,
+                symbols, strategyEnabled, running, disabledSymbols, rsiLength, rsiOversold, rsiOverbought,
                 lookbackBars, killzoneThreshold, minMomentum, contextEnabled);
     }
 }

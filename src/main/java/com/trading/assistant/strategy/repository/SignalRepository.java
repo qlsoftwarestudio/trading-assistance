@@ -28,4 +28,8 @@ public interface SignalRepository extends JpaRepository<Signal, Long> {
     List<Signal> findBySymbolAndExecutedTrue(String symbol);
 
     List<Signal> findByUserIdIsNull();
+
+    List<Signal> findTop50ByUserIdOrderByGeneratedAtDesc(Long userId);
+
+    List<Signal> findTop50ByUserIdAndSymbolOrderByGeneratedAtDesc(Long userId, String symbol);
 }

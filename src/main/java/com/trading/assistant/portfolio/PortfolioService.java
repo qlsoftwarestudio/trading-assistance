@@ -71,7 +71,7 @@ public class PortfolioService {
             }
             
             // Calculate max drawdown from cumulative equity curve
-            BigDecimal maxDrawdown = calculateMaxDrawdown(null);
+            BigDecimal maxDrawdown = calculateMaxDrawdown(null, null);
             metrics.setMaxDrawdown(maxDrawdown);
 
             dailyMetricsRepository.save(metrics);
@@ -85,7 +85,7 @@ public class PortfolioService {
     /**
      * Get portfolio summary (global or by symbol)
      */
-    public Map<String, Object> getPortfolioSummary(String symbol) {
+    public Map<String, Object> getPortfolioSummary(String symbol, Long userId) {
         Map<String, Object> summary = new HashMap<>();
 
         // Balance (global)
@@ -94,16 +94,30 @@ public class PortfolioService {
 
         // Trades stats
         Long totalTrades, winningTrades, losingTrades, openTrades;
-        if (symbol != null && !symbol.isEmpty()) {
-            totalTrades = tradeRepository.countBySymbolAndStatus(symbol, "CLOSED");
-            winningTrades = tradeRepository.countWinningTradesBySymbol(symbol);
-            losingTrades = tradeRepository.countLosingTradesBySymbol(symbol);
-            openTrades = tradeRepository.countBySymbolAndStatus(symbol, "OPEN");
+        if (userId != null) {
+            if (symbol != null && !symbol.isEmpty()) {
+                totalTrades = tradeRepository.countByUserIdAndSymbolAndStatus(userId, symbol, "CLOSED");
+                winningTrades = tradeRepository.countWinningTradesByUserId(userId);
+                losingTrades = tradeRepository.countLosingTradesByUserId(userId);
+                openTrades = tradeRepository.countByUserIdAndSymbolAndStatus(userId, symbol, "OPEN");
+            } else {
+                totalTrades = tradeRepository.countByUserIdAndStatus(userId, "CLOSED");
+                winningTrades = tradeRepository.countWinningTradesByUserId(userId);
+                losingTrades = tradeRepository.countLosingTradesByUserId(userId);
+                openTrades = tradeRepository.countByUserIdAndStatus(userId, "OPEN");
+            }
         } else {
-            totalTrades = tradeRepository.count();
-            winningTrades = tradeRepository.countWinningTrades();
-            losingTrades = tradeRepository.countLosingTrades();
-            openTrades = tradeRepository.countByStatus("OPEN");
+            if (symbol != null && !symbol.isEmpty()) {
+                totalTrades = tradeRepository.countBySymbolAndStatus(symbol, "CLOSED");
+                winningTrades = tradeRepository.countWinningTradesBySymbol(symbol);
+                losingTrades = tradeRepository.countLosingTradesBySymbol(symbol);
+                openTrades = tradeRepository.countBySymbolAndStatus(symbol, "OPEN");
+            } else {
+                totalTrades = tradeRepository.count();
+                winningTrades = tradeRepository.countWinningTrades();
+                losingTrades = tradeRepository.countLosingTrades();
+                openTrades = tradeRepository.countByStatus("OPEN");
+            }
         }
 
         summary.put("totalTrades", totalTrades != null ? totalTrades : 0L);
@@ -122,18 +136,35 @@ public class PortfolioService {
         }
 
         // P&L
-        BigDecimal totalPnl = symbol != null && !symbol.isEmpty()
-                ? tradeRepository.calculateTotalPnlBySymbol(symbol)
-                : tradeRepository.calculateTotalPnl();
+        BigDecimal totalPnl;
+        if (userId != null) {
+            totalPnl = symbol != null && !symbol.isEmpty()
+                    ? tradeRepository.calculateTotalPnlBySymbolAndUserId(symbol, userId)
+                    : tradeRepository.calculateTotalPnlByUserId(userId);
+        } else {
+            totalPnl = symbol != null && !symbol.isEmpty()
+                    ? tradeRepository.calculateTotalPnlBySymbol(symbol)
+                    : tradeRepository.calculateTotalPnl();
+        }
         summary.put("totalPnl", totalPnl != null ? totalPnl : BigDecimal.ZERO);
 
         // Profit Factor
-        BigDecimal grossProfit = symbol != null && !symbol.isEmpty()
-                ? tradeRepository.calculateGrossProfitBySymbol(symbol)
-                : tradeRepository.calculateGrossProfit();
-        BigDecimal grossLoss = symbol != null && !symbol.isEmpty()
-                ? tradeRepository.calculateGrossLossBySymbol(symbol)
-                : tradeRepository.calculateGrossLoss();
+        BigDecimal grossProfit, grossLoss;
+        if (userId != null) {
+            grossProfit = symbol != null && !symbol.isEmpty()
+                    ? tradeRepository.calculateGrossProfitBySymbol(symbol)
+                    : tradeRepository.calculateGrossProfitByUserId(userId);
+            grossLoss = symbol != null && !symbol.isEmpty()
+                    ? tradeRepository.calculateGrossLossBySymbol(symbol)
+                    : tradeRepository.calculateGrossLossByUserId(userId);
+        } else {
+            grossProfit = symbol != null && !symbol.isEmpty()
+                    ? tradeRepository.calculateGrossProfitBySymbol(symbol)
+                    : tradeRepository.calculateGrossProfit();
+            grossLoss = symbol != null && !symbol.isEmpty()
+                    ? tradeRepository.calculateGrossLossBySymbol(symbol)
+                    : tradeRepository.calculateGrossLoss();
+        }
 
         if (grossLoss != null && grossLoss.compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal pf = grossProfit.divide(grossLoss, 4, RoundingMode.HALF_UP);
@@ -144,7 +175,7 @@ public class PortfolioService {
         }
 
         // Max drawdown
-        summary.put("maxDrawdown", calculateMaxDrawdown(symbol));
+        summary.put("maxDrawdown", calculateMaxDrawdown(symbol, userId));
 
         // Current price
         BigDecimal currentPrice = symbol != null && !symbol.isEmpty()
@@ -158,7 +189,7 @@ public class PortfolioService {
     /**
      * Calculate max drawdown from cumulative PnL curve (peak-to-trough in $).
      */
-    private BigDecimal calculateMaxDrawdown(String symbol) {
+    private BigDecimal calculateMaxDrawdown(String symbol, Long userId) {
         try {
             List<Trade> trades = tradeRepository.findClosedTradesOrderByExitTimeAsc();
             if (trades == null || trades.isEmpty()) return BigDecimal.ZERO;
@@ -168,6 +199,7 @@ public class PortfolioService {
             BigDecimal maxDrawdown = BigDecimal.ZERO;
 
             for (Trade trade : trades) {
+                if (userId != null && !userId.equals(trade.getUserId())) continue;
                 if (symbol != null && !symbol.isEmpty() && !symbol.equals(trade.getSymbol())) continue;
                 cumPnl = cumPnl.add(trade.getPnl());
                 if (cumPnl.compareTo(peak) > 0) {
@@ -188,7 +220,13 @@ public class PortfolioService {
     /**
      * Get latest daily metrics
      */
-    public DailyMetrics getLatestMetrics(String symbol) {
+    public DailyMetrics getLatestMetrics(String symbol, Long userId) {
+        if (userId != null) {
+            if (symbol != null && !symbol.isEmpty()) {
+                return dailyMetricsRepository.findTopByUserIdAndSymbolOrderByDateDesc(userId, symbol).orElse(null);
+            }
+            return dailyMetricsRepository.findTopByUserIdOrderByDateDesc(userId).orElse(null);
+        }
         if (symbol != null && !symbol.isEmpty()) {
             return dailyMetricsRepository.findTopBySymbolOrderByDateDesc(symbol).orElse(null);
         }
@@ -198,7 +236,13 @@ public class PortfolioService {
     /**
      * Get all daily metrics ordered by date ascending (for calendar/history view)
      */
-    public List<DailyMetrics> getAllMetricsHistory(String symbol) {
+    public List<DailyMetrics> getAllMetricsHistory(String symbol, Long userId) {
+        if (userId != null) {
+            if (symbol != null && !symbol.isEmpty()) {
+                return dailyMetricsRepository.findByUserIdAndSymbolOrderByDateAsc(userId, symbol);
+            }
+            return dailyMetricsRepository.findByUserIdOrderByDateAsc(userId);
+        }
         if (symbol != null && !symbol.isEmpty()) {
             return dailyMetricsRepository.findBySymbolOrderByDateAsc(symbol);
         }

@@ -70,4 +70,35 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
     long countBySymbolAndStatus(String symbol, String status);
 
     List<Trade> findByUserIdIsNull();
+
+    // Multi-tenant queries
+    Page<Trade> findByUserIdOrderByEntryTimeDesc(Long userId, Pageable pageable);
+
+    Page<Trade> findByUserIdAndSymbolOrderByEntryTimeDesc(Long userId, String symbol, Pageable pageable);
+
+    List<Trade> findByUserIdAndStatusOrderByEntryTimeDesc(Long userId, String status);
+
+    List<Trade> findByUserIdAndSymbolAndStatusOrderByEntryTimeDesc(Long userId, String symbol, String status);
+
+    long countByUserIdAndStatus(Long userId, String status);
+
+    long countByUserIdAndSymbolAndStatus(Long userId, String symbol, String status);
+
+    @Query("SELECT COALESCE(SUM(t.pnl), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.userId = :userId")
+    BigDecimal calculateTotalPnlByUserId(@Param("userId") Long userId);
+
+    @Query("SELECT COALESCE(SUM(t.pnl), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.symbol = :symbol AND t.userId = :userId")
+    BigDecimal calculateTotalPnlBySymbolAndUserId(@Param("symbol") String symbol, @Param("userId") Long userId);
+
+    @Query("SELECT COUNT(t) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl > 0 AND t.userId = :userId")
+    Long countWinningTradesByUserId(@Param("userId") Long userId);
+
+    @Query("SELECT COUNT(t) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl <= 0 AND t.userId = :userId")
+    Long countLosingTradesByUserId(@Param("userId") Long userId);
+
+    @Query("SELECT COALESCE(SUM(t.pnl), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl > 0 AND t.userId = :userId")
+    BigDecimal calculateGrossProfitByUserId(@Param("userId") Long userId);
+
+    @Query("SELECT COALESCE(SUM(ABS(t.pnl)), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl < 0 AND t.userId = :userId")
+    BigDecimal calculateGrossLossByUserId(@Param("userId") Long userId);
 }

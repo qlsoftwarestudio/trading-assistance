@@ -382,6 +382,7 @@ public class TradeManager {
                 );
                 trade.setBinanceOrderId(orderId);
                 trade.setSetupType(setupType);
+                trade.setUserId(1L); // default admin tenant
                 tradeRepository.save(trade);
 
                 // Initialize peak tracking for trailing
@@ -540,6 +541,7 @@ public class TradeManager {
                 );
                 trade.setBinanceOrderId(orderId);
                 trade.setSetupType(signal.getSetupType());
+                if (signal.getUserId() != null) trade.setUserId(signal.getUserId());
                 tradeRepository.save(trade);
 
                 // Initialize trailing stop tracking and momentum tracking

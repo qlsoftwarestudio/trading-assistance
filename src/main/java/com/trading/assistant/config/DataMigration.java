@@ -80,7 +80,6 @@ public class DataMigration {
             bot.setSymbol("HYPEUSDT");
             bot.setApiKeyEncrypted(encryptionService.encrypt("placeholder"));
             bot.setApiSecretEncrypted(encryptionService.encrypt("placeholder"));
-            bot.setMaxCapitalUsd(java.math.BigDecimal.ZERO); // unlimited
             bot.setEnabled(true);
             bot.setRunning(true);
             botRepository.save(bot);

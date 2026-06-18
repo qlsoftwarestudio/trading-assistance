@@ -24,4 +24,12 @@ public interface DailyMetricsRepository extends JpaRepository<DailyMetrics, Long
     List<DailyMetrics> findBySymbolOrderByDateAsc(String symbol);
 
     List<DailyMetrics> findByUserIdIsNull();
+
+    Optional<DailyMetrics> findTopByUserIdOrderByDateDesc(Long userId);
+
+    Optional<DailyMetrics> findTopByUserIdAndSymbolOrderByDateDesc(Long userId, String symbol);
+
+    List<DailyMetrics> findByUserIdOrderByDateAsc(Long userId);
+
+    List<DailyMetrics> findByUserIdAndSymbolOrderByDateAsc(Long userId, String symbol);
 }

@@ -4,13 +4,13 @@ import com.trading.assistant.user.model.Bot;
 import com.trading.assistant.user.model.User;
 import com.trading.assistant.user.repository.BotRepository;
 import com.trading.assistant.user.repository.UserRepository;
+import com.trading.assistant.strategy.HypeStrategy;
 import com.trading.assistant.user.service.EncryptionService;
 import com.trading.assistant.user.service.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -31,6 +31,9 @@ public class BotController {
     @Autowired
     private JwtUtil jwtUtil;
 
+    @Autowired
+    private HypeStrategy hypeStrategy;
+
     private Long getUserIdFromToken(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) return null;
         String token = authHeader.substring(7);
@@ -49,8 +52,7 @@ public class BotController {
                 "name", b.getName(),
                 "symbol", b.getSymbol(),
                 "enabled", b.isEnabled(),
-                "running", b.isRunning(),
-                "maxCapitalUsd", b.getMaxCapitalUsd()
+                "running", b.isRunning()
         )).collect(Collectors.toList());
         return ResponseEntity.ok(response);
     }
@@ -79,10 +81,8 @@ public class BotController {
         bot.setSymbol(request.getOrDefault("symbol", "HYPEUSDT"));
         bot.setApiKeyEncrypted(encryptionService.encrypt(request.get("apiKey")));
         bot.setApiSecretEncrypted(encryptionService.encrypt(request.get("apiSecret")));
-        bot.setMaxCapitalUsd(request.containsKey("maxCapitalUsd")
-                ? new BigDecimal(request.get("maxCapitalUsd"))
-                : BigDecimal.valueOf(user.getPlan().getMaxCapitalUsd()));
         botRepository.save(bot);
+        hypeStrategy.enableSymbol(bot.getSymbol());
 
         return ResponseEntity.ok(Map.of(
                 "id", bot.getId(),
@@ -103,8 +103,14 @@ public class BotController {
             return ResponseEntity.status(403).body(Map.of("error", "Bot not found or access denied"));
         }
 
-        bot.setRunning(!bot.isRunning());
+        boolean nowRunning = !bot.isRunning();
+        bot.setRunning(nowRunning);
         botRepository.save(bot);
+        if (nowRunning) {
+            hypeStrategy.enableSymbol(bot.getSymbol());
+        } else {
+            hypeStrategy.disableSymbol(bot.getSymbol());
+        }
         return ResponseEntity.ok(Map.of(
                 "id", bot.getId(),
                 "running", bot.isRunning(),

@@ -1,7 +1,6 @@
 package com.trading.assistant.user.model;
 
 import jakarta.persistence.*;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -33,9 +32,6 @@ public class Bot {
 
     @Column(nullable = false)
     private boolean running = true;
-
-    @Column(precision = 20, scale = 8)
-    private BigDecimal maxCapitalUsd;
 
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -78,9 +74,6 @@ public class Bot {
 
     public boolean isRunning() { return running; }
     public void setRunning(boolean running) { this.running = running; }
-
-    public BigDecimal getMaxCapitalUsd() { return maxCapitalUsd; }
-    public void setMaxCapitalUsd(BigDecimal maxCapitalUsd) { this.maxCapitalUsd = maxCapitalUsd; }
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
