@@ -1,8 +1,11 @@
 package com.trading.assistant.notification;
 
 import com.trading.assistant.portfolio.model.Trade;
+import com.trading.assistant.user.model.User;
+import com.trading.assistant.user.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -29,38 +32,51 @@ public class TelegramBot {
     @Value("${telegram.bot.enabled:false}")
     private boolean enabled;
 
+    @Autowired
+    private UserRepository userRepository;
+
     private final RestTemplate restTemplate = new RestTemplate();
     private static final String TELEGRAM_API_URL = "https://api.telegram.org/bot%s/sendMessage";
+
+    private String resolveChatId(Long userId) {
+        if (userId != null) {
+            return userRepository.findById(userId)
+                    .map(User::getTelegramChatId)
+                    .filter(id -> id != null && !id.isBlank())
+                    .orElse(chatId);
+        }
+        return chatId;
+    }
 
     /**
      * Send trade notification
      */
     public void sendTradeNotification(Trade trade, String type) {
-        if (!enabled || botToken.isEmpty() || chatId.isEmpty()) {
-            logger.info("Telegram skipped: enabled={}, tokenEmpty={}, chatIdEmpty={}", enabled, botToken.isEmpty(), chatId.isEmpty());
+        if (!enabled || botToken.isEmpty()) return;
+        String targetChatId = resolveChatId(trade.getUserId());
+        if (targetChatId == null || targetChatId.isBlank()) {
+            logger.info("Telegram skipped: no chatId for userId={}", trade.getUserId());
             return;
         }
-
         try {
             String message = formatTradeMessage(trade, type);
-            sendMessage(message);
+            sendMessage(message, targetChatId);
         } catch (Exception e) {
             logger.error("Failed to send Telegram notification: {}", e.getMessage());
         }
     }
 
     /**
-     * Send generic alert
+     * Send generic alert to admin chat (global)
      */
     public void sendAlert(String title, String message) {
         if (!enabled || botToken.isEmpty() || chatId.isEmpty()) {
             logger.info("Telegram alert skipped: enabled={}, tokenEmpty={}, chatIdEmpty={}", enabled, botToken.isEmpty(), chatId.isEmpty());
             return;
         }
-
         try {
             String formatted = String.format("🔔 <b>%s</b>\n\n%s", title, message);
-            sendMessage(formatted);
+            sendMessage(formatted, chatId);
         } catch (Exception e) {
             logger.error("Failed to send Telegram alert: {}", e.getMessage());
         }
@@ -108,20 +124,16 @@ public class TelegramBot {
                 .doubleValue();
     }
 
-    private void sendMessage(String text) {
+    private void sendMessage(String text, String targetChatId) {
         String url = String.format(TELEGRAM_API_URL, botToken);
-
-        logger.info("Sending Telegram message to chatId={}", chatId);
-
+        logger.info("Sending Telegram message to chatId={}", targetChatId);
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-
             Map<String, Object> body = new HashMap<>();
-            body.put("chat_id", chatId);
+            body.put("chat_id", targetChatId);
             body.put("text", text);
             body.put("parse_mode", "HTML");
-
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
             var response = restTemplate.postForEntity(url, request, String.class);
             logger.info("Telegram API response: status={}, body={}", response.getStatusCode(), response.getBody());

@@ -45,6 +45,9 @@ dependencies {
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.5'
 
+	// 2FA TOTP (Google Authenticator compatible)
+	implementation 'com.warrenstrange:googleauth:1.5.0'
+
 	// JAXB API (removed in JDK 21, required by some transitive dependencies)
 	implementation 'javax.xml.bind:jaxb-api:2.3.1'
 	

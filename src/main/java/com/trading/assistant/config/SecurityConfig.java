@@ -23,8 +23,9 @@ public class SecurityConfig {
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**", "/api/health", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                .requestMatchers("/api/bots/**", "/api/dashboard/**", "/api/strategy/**").authenticated()
-                .anyRequest().permitAll()
+                .requestMatchers("/api/admin/**").authenticated()
+                .requestMatchers("/api/bots/**", "/api/dashboard/**", "/api/strategy/**", "/api/portfolio/**", "/api/trades/**").authenticated()
+                .anyRequest().authenticated()
             )
             .httpBasic(AbstractHttpConfigurer::disable)
             .formLogin(AbstractHttpConfigurer::disable);

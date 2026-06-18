@@ -54,11 +54,18 @@ public class AuthController {
         String email = request.get("email");
         String password = request.get("password");
 
-        User user = userRepository.findByEmail(email)
-                .orElse(null);
+        User user = userRepository.findByEmail(email).orElse(null);
 
         if (user == null || !passwordEncoder.matches(password, user.getPasswordHash())) {
             return ResponseEntity.status(401).body(Map.of("error", "Invalid credentials"));
+        }
+
+        if (user.isTwoFactorEnabled()) {
+            String tempToken = jwtUtil.generateTempToken(user.getId());
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("twoFactorRequired", true);
+            resp.put("tempToken", tempToken);
+            return ResponseEntity.ok(resp);
         }
 
         String token = jwtUtil.generateToken(user.getId(), user.getEmail());
@@ -68,7 +75,8 @@ public class AuthController {
                 "email", user.getEmail(),
                 "role", user.getPlan().name(),
                 "plan", user.getPlan().name(),
-                "maxBots", user.getMaxBots()
+                "maxBots", user.getMaxBots(),
+                "twoFactorEnabled", false
         ));
     }
 }

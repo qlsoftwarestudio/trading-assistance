@@ -1116,8 +1116,10 @@ public class TradeManager {
                 binanceClient.cancelOrder(trade.getTakeProfitOrderId());
             }
 
-            BigDecimal commission = trade.getInvestedAmount()
-                    .multiply(BigDecimal.valueOf(0.0012))
+            // Commission = round-trip taker fee on notional (0.05% entry + 0.05% exit = 0.10%)
+            BigDecimal commission = trade.getQuantity()
+                    .multiply(trade.getEntryPrice())
+                    .multiply(BigDecimal.valueOf(0.001))
                     .setScale(8, RoundingMode.HALF_UP);
 
             trade.close(exitPrice, reason, commission);
@@ -1155,8 +1157,10 @@ public class TradeManager {
             }
 
             if (orderId != null) {
-                BigDecimal commission = trade.getInvestedAmount()
-                        .multiply(BigDecimal.valueOf(0.0012))
+                // Commission = round-trip taker fee on notional (0.05% entry + 0.05% exit = 0.10%)
+                BigDecimal commission = trade.getQuantity()
+                        .multiply(trade.getEntryPrice())
+                        .multiply(BigDecimal.valueOf(0.001))
                         .setScale(8, RoundingMode.HALF_UP);
 
                 trade.close(exitPrice, reason, commission);

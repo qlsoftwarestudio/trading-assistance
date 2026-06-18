@@ -8,6 +8,7 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -21,10 +22,12 @@ public class BinanceUserDataStreamClient {
     private static final Logger logger = LoggerFactory.getLogger(BinanceUserDataStreamClient.class);
     private static final ObjectMapper mapper = new ObjectMapper();
 
-    private static final String WS_BASE_URL = "wss://fstream.binance.com/ws";
     private static final int KEEP_ALIVE_INTERVAL_MIN = 30;
     private static final int RECONNECT_DELAY_SECONDS = 5;
     private static final int MAX_RECONNECT_DELAY_SECONDS = 300;
+
+    @Value("${binance.api.base-url:https://testnet.binancefuture.com}")
+    private String binanceBaseUrl;
 
     @Autowired
     private BinanceClient binanceClient;
@@ -50,6 +53,13 @@ public class BinanceUserDataStreamClient {
         startStream();
     }
 
+    private String resolveWsBaseUrl() {
+        if (binanceBaseUrl != null && (binanceBaseUrl.contains("testnet") || binanceBaseUrl.contains("demo-fapi"))) {
+            return "wss://stream.binancefuture.com/ws";
+        }
+        return "wss://fstream.binance.com/ws";
+    }
+
     private void startStream() {
         try {
             listenKey = binanceClient.createListenKey();
@@ -58,9 +68,10 @@ public class BinanceUserDataStreamClient {
                 scheduleReconnect(RECONNECT_DELAY_SECONDS);
                 return;
             }
-            logger.info("Listen key created: {}. Connecting to User Data Stream...", listenKey);
+            String wsBase = resolveWsBaseUrl();
+            logger.info("Listen key created. Connecting to User Data Stream: {}...", wsBase);
 
-            String wsUrl = WS_BASE_URL + "/" + listenKey;
+            String wsUrl = wsBase + "/" + listenKey;
             WebSocket.Listener listener = new WebSocket.Listener() {
                 @Override
                 public void onOpen(WebSocket ws) {

@@ -24,6 +24,15 @@ public class User {
     @Column(nullable = false)
     private boolean active = true;
 
+    @Column(length = 50)
+    private String telegramChatId;
+
+    @Column(length = 100)
+    private String twoFactorSecret;
+
+    @Column(nullable = false)
+    private boolean twoFactorEnabled = false;
+
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -69,4 +78,13 @@ public class User {
     public int getMaxBots() {
         return plan != null ? plan.getMaxBots() : Plan.FREE.getMaxBots();
     }
+
+    public String getTelegramChatId() { return telegramChatId; }
+    public void setTelegramChatId(String telegramChatId) { this.telegramChatId = telegramChatId; }
+
+    public String getTwoFactorSecret() { return twoFactorSecret; }
+    public void setTwoFactorSecret(String twoFactorSecret) { this.twoFactorSecret = twoFactorSecret; }
+
+    public boolean isTwoFactorEnabled() { return twoFactorEnabled; }
+    public void setTwoFactorEnabled(boolean twoFactorEnabled) { this.twoFactorEnabled = twoFactorEnabled; }
 }

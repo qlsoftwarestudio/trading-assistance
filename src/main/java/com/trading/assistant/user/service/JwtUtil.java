@@ -34,6 +34,16 @@ public class JwtUtil {
                 .compact();
     }
 
+    public String generateTempToken(Long userId) {
+        return Jwts.builder()
+                .setSubject(String.valueOf(userId))
+                .claim("twoFaPending", true)
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + 300_000L)) // 5 min
+                .signWith(getKey(), SignatureAlgorithm.HS256)
+                .compact();
+    }
+
     public Claims parseToken(String token) {
         return Jwts.parser()
                 .verifyWith(getKey())
