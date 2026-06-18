@@ -220,10 +220,11 @@ public class TradeManager {
     }
 
     /**
-     * Check if there's an open position for given direction (LONG/SHORT)
+     * Check if there's an open position for given direction (LONG/SHORT) scoped to userId+symbol.
+     * Isolation: each user can have their own LONG/SHORT per symbol independently.
      */
-    public boolean hasOpenPosition(String action) {
-        return tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN")
+    public boolean hasOpenPosition(String symbol, Long userId, String action) {
+        return tradeRepository.findByUserIdAndSymbolAndStatusOrderByEntryTimeDesc(userId, symbol, "OPEN")
                 .stream()
                 .anyMatch(t -> t.getAction().equals(action));
     }
@@ -443,11 +444,12 @@ public class TradeManager {
                 return;
             }
 
-            // Check concurrent trade limit
-            long openCount = tradeRepository.countByStatus("OPEN");
+            // Check concurrent trade limit — scoped to this user
+            Long userId = signal.getUserId() != null ? signal.getUserId() : 1L;
+            long openCount = tradeRepository.countByUserIdAndStatus(userId, "OPEN");
             if (openCount >= maxConcurrentTrades) {
-                logger.info("Max concurrent trades reached ({}/{}). Skipping {} entry.",
-                        openCount, maxConcurrentTrades, action);
+                logger.info("Max concurrent trades reached for userId={} ({}/{}). Skipping {} entry.",
+                        userId, openCount, maxConcurrentTrades, action);
                 return;
             }
 
@@ -608,10 +610,10 @@ public class TradeManager {
 
     /**
      * Update trailing stops and time exits using already-fetched data (no extra REST calls).
-     * Called from executeStrategy every 2 minutes.
+     * Called from executeStrategy every 2 minutes, scoped to userId+symbol for isolation.
      */
-    public void updateTrailingAndTimeExit(BigDecimal currentPrice, Kline currentKline, PriceProjection projection) {
-        List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
+    public void updateTrailingAndTimeExit(String symbol, Long userId, BigDecimal currentPrice, Kline currentKline, PriceProjection projection) {
+        List<Trade> openTrades = tradeRepository.findByUserIdAndSymbolAndStatusOrderByEntryTimeDesc(userId, symbol, "OPEN");
         if (openTrades == null || openTrades.isEmpty()) return;
         for (Trade trade : openTrades) {
             // Safety: ensure conditional orders exist on Binance (handles testnet fallback delays or failures)
@@ -632,10 +634,14 @@ public class TradeManager {
         try {
             List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
             if (openTrades == null || openTrades.isEmpty()) return;
-            BigDecimal currentPrice = binanceClient.getCurrentPrice();
-            if (currentPrice == null) return;
+            // Get price per symbol — each trade symbol may differ
+            Map<String, BigDecimal> priceCache = new ConcurrentHashMap<>();
             for (Trade trade : openTrades) {
-                checkPriceAgainstSLTP(trade, currentPrice);
+                String sym = trade.getSymbol();
+                BigDecimal price = priceCache.computeIfAbsent(sym, s -> binanceClient.getPrice(s));
+                if (price != null && price.compareTo(BigDecimal.ZERO) > 0) {
+                    checkPriceAgainstSLTP(trade, price);
+                }
             }
         } catch (Exception e) {
             logger.debug("Error in monitorOpenTradesSLTP: {}", e.getMessage());

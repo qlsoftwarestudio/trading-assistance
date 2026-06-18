@@ -10,4 +10,6 @@ import java.util.List;
 public interface BotRepository extends JpaRepository<Bot, Long> {
     List<Bot> findByUserId(Long userId);
     long countByUserId(Long userId);
+    List<Bot> findByRunningTrue();
+    List<Bot> findByEnabledTrueAndRunningTrue();
 }

@@ -8,6 +8,8 @@ import com.trading.assistant.execution.TradeManager;
 import com.trading.assistant.strategy.model.MarketContext;
 import com.trading.assistant.strategy.model.Signal;
 import com.trading.assistant.strategy.repository.SignalRepository;
+import com.trading.assistant.user.model.Bot;
+import com.trading.assistant.user.repository.BotRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +50,9 @@ public class HypeStrategy {
     @Autowired
     private AutoAdjustService autoAdjustService;
 
+    @Autowired
+    private BotRepository botRepository;
+
     @Value("${trading.strategy.enabled:true}")
     private boolean strategyEnabled;
 
@@ -57,6 +62,7 @@ public class HypeStrategy {
     private List<String> symbols;
 
     private String symbol; // current symbol being processed in multi-pair loop
+    private volatile Long currentUserId = 1L; // userId of the bot currently being processed
 
     private final Set<String> disabledSymbols = ConcurrentHashMap.newKeySet();
 
@@ -192,12 +198,17 @@ public class HypeStrategy {
             return;
         }
 
-        for (String sym : symbols) {
-            if (disabledSymbols.contains(sym)) {
-                logger.debug("Symbol {} is disabled by bot toggle. Skipping.", sym);
-                continue;
-            }
+        List<Bot> activeBots = botRepository.findByEnabledTrueAndRunningTrue();
+        if (activeBots.isEmpty()) {
+            logger.debug("No active bots found in DB. Strategy idle.");
+            return;
+        }
+        for (Bot bot : activeBots) {
+            String sym = bot.getSymbol();
+            Long userId = bot.getUser() != null ? bot.getUser().getId() : 1L;
             this.symbol = sym;
+            this.currentUserId = userId;
+            logger.info("▶ Executing strategy for bot '{}' (userId={}, symbol={})", bot.getName(), userId, sym);
             executeStrategyForSymbol(sym);
         }
     }
@@ -293,7 +304,7 @@ public class HypeStrategy {
             evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio);
 
             // Update trailing stops and time exits for open trades (data already fetched above)
-            tradeManager.updateTrailingAndTimeExit(currentPrice, currentKline, projection);
+            tradeManager.updateTrailingAndTimeExit(sym, currentUserId, currentPrice, currentKline, projection);
 
         } catch (Exception e) {
             logger.error("Error executing strategy: {}", e.getMessage(), e);
@@ -318,8 +329,8 @@ public class HypeStrategy {
                 && rsi < trendDipRsiThreshold;
 
         if (meanReversionCondition || breakoutCondition || trendDipCondition) {
-            if (tradeManager.hasOpenPosition("LONG")) {
-                logger.info("LONG position already open. Skipping new LONG signal.");
+            if (tradeManager.hasOpenPosition(symbol, currentUserId, "LONG")) {
+                logger.info("LONG position already open for userId={} symbol={}. Skipping.", currentUserId, symbol);
                 return;
             }
 
@@ -408,7 +419,7 @@ public class HypeStrategy {
                     inSellZone
             );
             signal.setSetupType(entryType);
-            signal.setUserId(1L); // default admin tenant
+            signal.setUserId(currentUserId);
 
             // Regression channel filter: for mean-reversion LONG, price should be in lower half of channel
             // Bypassed when extreme oversold or volume spike override is active (capitulation event)
@@ -512,8 +523,8 @@ public class HypeStrategy {
         }
 
         if (meanReversionCondition || breakoutCondition || trendDipShortCondition) {
-            if (tradeManager.hasOpenPosition("SHORT")) {
-                logger.info("SHORT position already open. Skipping new SHORT signal.");
+            if (tradeManager.hasOpenPosition(symbol, currentUserId, "SHORT")) {
+                logger.info("SHORT position already open for userId={} symbol={}. Skipping.", currentUserId, symbol);
                 return;
             }
 
@@ -618,7 +629,7 @@ public class HypeStrategy {
                     inSellZone
             );
             signal.setSetupType(entryType);
-            signal.setUserId(1L); // default admin tenant
+            signal.setUserId(currentUserId);
 
             // Regression channel filter: for mean-reversion SHORT, price should be in upper half of channel
             // Bypassed when extreme overbought or volume spike override is active (blow-off top event)
