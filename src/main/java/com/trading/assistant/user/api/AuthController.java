@@ -41,7 +41,9 @@ public class AuthController {
         String token = jwtUtil.generateToken(user.getId(), user.getEmail());
         return ResponseEntity.ok(Map.of(
                 "token", token,
+                "userId", user.getId(),
                 "email", user.getEmail(),
+                "role", user.getPlan().name(),
                 "plan", user.getPlan().name(),
                 "maxBots", user.getMaxBots()
         ));
@@ -62,7 +64,9 @@ public class AuthController {
         String token = jwtUtil.generateToken(user.getId(), user.getEmail());
         return ResponseEntity.ok(Map.of(
                 "token", token,
+                "userId", user.getId(),
                 "email", user.getEmail(),
+                "role", user.getPlan().name(),
                 "plan", user.getPlan().name(),
                 "maxBots", user.getMaxBots()
         ));
