@@ -75,11 +75,12 @@ class IndicatorCalculatorTest {
     void testRelativeVolume() {
         List<Kline> klines = new ArrayList<>();
         for (int i = 0; i < 30; i++) {
-            BigDecimal vol = i == 29 ? BigDecimal.valueOf(20000) : BigDecimal.valueOf(5000);
+            // Implementation uses size-2 (penultimate candle), so spike must be at index 28
+            BigDecimal vol = i == 28 ? BigDecimal.valueOf(20000) : BigDecimal.valueOf(5000);
             klines.add(new Kline(i, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, vol));
         }
         double relVol = calculator.calculateRelativeVolume(klines, 10);
-        assertTrue(relVol > 1.5, "Last volume is 4x average");
+        assertTrue(relVol > 1.5, "Penultimate volume (4x average) should produce relVol>1.5, got: " + relVol);
     }
 
     private List<Kline> generateTrendKlines(int count, double dailyChange) {

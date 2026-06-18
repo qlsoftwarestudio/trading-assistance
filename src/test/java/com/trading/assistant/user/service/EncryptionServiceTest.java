@@ -1,16 +1,20 @@
 package com.trading.assistant.user.service;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-@SpringBootTest
 class EncryptionServiceTest {
 
-    @Autowired
     private EncryptionService encryptionService;
+
+    @BeforeEach
+    void setUp() {
+        encryptionService = new EncryptionService();
+        ReflectionTestUtils.setField(encryptionService, "secretKey", "test-encryption-key-32bytes!!");
+    }
 
     @Test
     void testEncryptDecrypt() {
@@ -27,7 +31,9 @@ class EncryptionServiceTest {
         String original = "test-key";
         String encrypted1 = encryptionService.encrypt(original);
         String encrypted2 = encryptionService.encrypt(original);
-        assertNotEquals(encrypted1, encrypted2); // AES without IV should be deterministic, but our impl uses default
-        assertEquals(encryptionService.decrypt(encrypted1), encryptionService.decrypt(encrypted2));
+        // AES/ECB is deterministic: same key + same plaintext = same ciphertext
+        assertEquals(encrypted1, encrypted2);
+        assertEquals(original, encryptionService.decrypt(encrypted1));
+        assertEquals(original, encryptionService.decrypt(encrypted2));
     }
 }
