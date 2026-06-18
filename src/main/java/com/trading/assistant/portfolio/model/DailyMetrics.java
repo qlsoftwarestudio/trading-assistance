@@ -13,7 +13,7 @@ public class DailyMetrics {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 20)
+    @Column(length = 20)
     private String symbol = "HYPEUSDT";
 
     @Column(name = "user_id")
