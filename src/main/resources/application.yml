@@ -77,7 +77,7 @@ trading:
       mode-enabled: true
       min-volatility-pct: 1.0
       max-spread-pct: 5.0
-      min-volume-ratio: 1.5
+      min-volume-ratio: 0.5
       sl-pct: 0.1
       tp-pct: 0.3
       position-size-pct: 35
