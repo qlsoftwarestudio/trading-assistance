@@ -267,9 +267,12 @@ public class BinanceClient {
             logger.info("Order placed: {}", response);
             return extractOrderId(response);
         } catch (Exception e) {
-            logger.error("Error placing order: {}. Fallback to DEMO order.", e.getMessage());
-            logger.info("DEMO FALLBACK: Simulating {} order for {} {}", side, quantity, symbol);
-            return "DEMO_ORDER_" + System.currentTimeMillis();
+            logger.error("Error placing order: {}", e.getMessage());
+            if (!configured) {
+                logger.info("DEMO FALLBACK: Simulating {} order for {} {}", side, quantity, symbol);
+                return "DEMO_ORDER_" + System.currentTimeMillis();
+            }
+            return null;
         }
     }
 
