@@ -13,6 +13,8 @@ public interface SignalRepository extends JpaRepository<Signal, Long> {
 
     List<Signal> findTop50ByOrderByGeneratedAtDesc();
 
+    List<Signal> findTop50BySymbolOrderByGeneratedAtDesc(String symbol);
+
     Optional<Signal> findTop1ByOrderByGeneratedAtDesc();
 
     List<Signal> findByExecutedFalseOrderByGeneratedAtDesc();
@@ -22,4 +24,8 @@ public interface SignalRepository extends JpaRepository<Signal, Long> {
     long countByActionAndExecutedTrue(String action);
 
     List<Signal> findByExecutedTrue();
+
+    List<Signal> findBySymbolAndExecutedTrue(String symbol);
+
+    List<Signal> findByUserIdIsNull();
 }

@@ -18,24 +18,43 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
 
     List<Trade> findByStatusOrderByEntryTimeDesc(String status);
 
+    List<Trade> findBySymbolAndStatusOrderByEntryTimeDesc(String symbol, String status);
+
     Page<Trade> findAllByOrderByEntryTimeDesc(Pageable pageable);
+
+    Page<Trade> findBySymbolOrderByEntryTimeDesc(String symbol, Pageable pageable);
 
     Optional<Trade> findFirstByStatusOrderByEntryTimeDesc(String status);
 
     @Query("SELECT COALESCE(SUM(t.pnl), 0) FROM Trade t WHERE t.status = 'CLOSED'")
     BigDecimal calculateTotalPnl();
 
+    @Query("SELECT COALESCE(SUM(t.pnl), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.symbol = :symbol")
+    BigDecimal calculateTotalPnlBySymbol(@Param("symbol") String symbol);
+
     @Query("SELECT COUNT(t) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl > 0")
     Long countWinningTrades();
+
+    @Query("SELECT COUNT(t) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl > 0 AND t.symbol = :symbol")
+    Long countWinningTradesBySymbol(@Param("symbol") String symbol);
 
     @Query("SELECT COUNT(t) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl <= 0")
     Long countLosingTrades();
 
+    @Query("SELECT COUNT(t) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl <= 0 AND t.symbol = :symbol")
+    Long countLosingTradesBySymbol(@Param("symbol") String symbol);
+
     @Query("SELECT COALESCE(SUM(t.pnl), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl > 0")
     BigDecimal calculateGrossProfit();
 
+    @Query("SELECT COALESCE(SUM(t.pnl), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl > 0 AND t.symbol = :symbol")
+    BigDecimal calculateGrossProfitBySymbol(@Param("symbol") String symbol);
+
     @Query("SELECT COALESCE(SUM(ABS(t.pnl)), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl < 0")
     BigDecimal calculateGrossLoss();
+
+    @Query("SELECT COALESCE(SUM(ABS(t.pnl)), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl < 0 AND t.symbol = :symbol")
+    BigDecimal calculateGrossLossBySymbol(@Param("symbol") String symbol);
 
     @Query("SELECT t FROM Trade t WHERE t.status = 'OPEN' AND t.entryTime < :cutoffTime")
     List<Trade> findOldOpenTrades(LocalDateTime cutoffTime);
@@ -47,4 +66,8 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
     List<Trade> findClosedTradesOrderByExitTimeAsc();
 
     long countByStatus(String status);
+
+    long countBySymbolAndStatus(String symbol, String status);
+
+    List<Trade> findByUserIdIsNull();
 }

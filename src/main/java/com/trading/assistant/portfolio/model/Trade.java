@@ -16,6 +16,9 @@ public class Trade {
     @Column(nullable = false, length = 20)
     private String symbol;
 
+    @Column(name = "user_id")
+    private Long userId;
+
     @Column(nullable = false, length = 10)
     private String action; // LONG only for SOLO LONG strategy
 
@@ -154,6 +157,9 @@ public class Trade {
 
     public String getExitReason() { return exitReason; }
     public void setExitReason(String exitReason) { this.exitReason = exitReason; }
+
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
 
     public String getSetupType() { return setupType; }
     public void setSetupType(String setupType) { this.setupType = setupType; }

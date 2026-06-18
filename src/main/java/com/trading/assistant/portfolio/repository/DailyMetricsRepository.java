@@ -13,7 +13,15 @@ public interface DailyMetricsRepository extends JpaRepository<DailyMetrics, Long
 
     Optional<DailyMetrics> findByDate(LocalDate date);
 
+    Optional<DailyMetrics> findBySymbolAndDate(String symbol, LocalDate date);
+
     Optional<DailyMetrics> findTopByOrderByDateDesc();
 
+    Optional<DailyMetrics> findTopBySymbolOrderByDateDesc(String symbol);
+
     List<DailyMetrics> findAllByOrderByDateAsc();
+
+    List<DailyMetrics> findBySymbolOrderByDateAsc(String symbol);
+
+    List<DailyMetrics> findByUserIdIsNull();
 }

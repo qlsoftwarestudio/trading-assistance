@@ -42,6 +42,8 @@ public class ScalpStrategy {
     @Value("${trading.strategy.hunter.mode-enabled:false}")
     private boolean hunterModeEnabled;
 
+    private volatile boolean running = true;
+
     @Value("${trading.strategy.symbol:HYPEUSDT}")
     private String symbol;
 
@@ -76,7 +78,11 @@ public class ScalpStrategy {
     @Scheduled(fixedRate = 15000)
     public void executeScalpStrategy() {
         if (!hunterModeEnabled) {
-            logger.trace("Hunter mode disabled. Skipping scalp strategy.");
+            logger.trace("Hunter mode disabled via config. Skipping scalp strategy.");
+            return;
+        }
+        if (!running) {
+            logger.trace("Hunter mode paused (toggle OFF). Skipping scalp strategy.");
             return;
         }
 
@@ -202,5 +208,31 @@ public class ScalpStrategy {
                     rsiOverbought, rsiOverboughtMicro, rsiReversingDown, momentumThreshold, momentumNegative,
                     inSellZone, nearVwap, belowEma, volumeSpike);
         }
+    }
+
+    public boolean isRunning() {
+        return running;
+    }
+
+    public void start() {
+        if (!hunterModeEnabled) {
+            throw new IllegalStateException("Cannot start: hunter mode is disabled in configuration");
+        }
+        this.running = true;
+        logger.info("Hunter/Scalp STARTED (toggle ON)");
+    }
+
+    public void stop() {
+        this.running = false;
+        logger.info("Hunter/Scalp STOPPED (toggle OFF)");
+    }
+
+    public boolean toggle() {
+        if (!hunterModeEnabled) {
+            throw new IllegalStateException("Cannot toggle: hunter mode is disabled in configuration");
+        }
+        this.running = !this.running;
+        logger.info("Hunter/Scalp toggled: running={}", this.running);
+        return this.running;
     }
 }

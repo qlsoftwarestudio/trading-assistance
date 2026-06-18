@@ -80,8 +80,16 @@ public class TradeManager {
     @Value("${trading.strategy.max-concurrent-trades:2}")
     private int maxConcurrentTrades;
 
-    @Value("${trading.strategy.max-hold-minutes:20}")
+    @Value("${trading.strategy.max-hold-minutes:45}")
     private int maxHoldMinutes;
+
+    // Dynamic max hold per symbol (HYPE=45min, SOL=90min, etc.)
+    private final Map<String, Integer> maxHoldMinutesBySymbol = java.util.Map.of(
+            "HYPEUSDT", 45,
+            "SOLUSDT", 90,
+            "BTCUSDT", 120,
+            "ETHUSDT", 90
+    );
 
     @Value("${trading.strategy.trailing-stop-pct:0.6}")
     private double trailingStopPct;
@@ -929,11 +937,12 @@ public class TradeManager {
         // Scalp trades: much shorter max hold time
         JournalEntryData journal = tradeJournalData.get(trade.getId());
         boolean isScalp = journal != null && journal.setupType != null && journal.setupType.startsWith("SCALP_");
-        int effectiveMaxHold = isScalp ? hunterMaxHoldMinutes : maxHoldMinutes;
+        int symbolMaxHold = maxHoldMinutesBySymbol.getOrDefault(trade.getSymbol(), maxHoldMinutes);
+        int effectiveMaxHold = isScalp ? hunterMaxHoldMinutes : symbolMaxHold;
 
         if (held.toMinutes() >= effectiveMaxHold) {
-            logger.info("⏱️ Time exit for {}Trade {}. Held: {} min (max: {} min). Current: {}, Entry: {}",
-                    isScalp ? "SCALP " : "", trade.getId(), held.toMinutes(), effectiveMaxHold, currentPrice, trade.getEntryPrice());
+            logger.info("⏱️ Time exit for {}Trade {}. Held: {} min (max: {} min, symbol: {}). Current: {}, Entry: {}",
+                    isScalp ? "SCALP " : "", trade.getId(), held.toMinutes(), effectiveMaxHold, trade.getSymbol(), currentPrice, trade.getEntryPrice());
             closeTrade(trade, currentPrice, "TIME_EXIT");
         }
     }

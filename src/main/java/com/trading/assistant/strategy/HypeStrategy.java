@@ -49,8 +49,12 @@ public class HypeStrategy {
     @Value("${trading.strategy.enabled:true}")
     private boolean strategyEnabled;
 
-    @Value("${trading.strategy.symbol:HYPEUSDT}")
-    private String symbol;
+    private volatile boolean running = true;
+
+    @Value("${trading.strategy.symbols:HYPEUSDT}")
+    private List<String> symbols;
+
+    private String symbol; // current symbol being processed in multi-pair loop
 
     @Value("${trading.strategy.rsi-length:5}")
     private int rsiLength;
@@ -170,7 +174,11 @@ public class HypeStrategy {
     @Scheduled(fixedRate = 120000)
     public void executeStrategy() {
         if (!strategyEnabled) {
-            logger.info("Strategy is disabled. Skipping execution.");
+            logger.info("Strategy is disabled via config. Skipping execution.");
+            return;
+        }
+        if (!running) {
+            logger.debug("Strategy is paused (toggle OFF). Skipping execution.");
             return;
         }
 
@@ -180,7 +188,14 @@ public class HypeStrategy {
             return;
         }
 
-        logger.info("Executing HYPEUSDT 5m SCALPING strategy...");
+        for (String sym : symbols) {
+            this.symbol = sym;
+            executeStrategyForSymbol(sym);
+        }
+    }
+
+    private void executeStrategyForSymbol(String sym) {
+        logger.info("Executing {} 5m swing strategy...", sym);
 
         try {
             // 1. Market context analysis (multi-timeframe, volume, BTC)
@@ -195,7 +210,7 @@ public class HypeStrategy {
             }
 
             // 2. Core technical indicators (15m)
-            List<Kline> klines = binanceClient.getKlines(timeframe, 50);
+            List<Kline> klines = binanceClient.getKlines(sym, timeframe, 50);
 
             if (klines == null || klines.isEmpty()) {
                 logger.error("No kline data available. Skipping strategy execution.");
@@ -702,11 +717,37 @@ public class HypeStrategy {
         }
     }
 
+    public boolean isRunning() {
+        return running;
+    }
+
+    public void start() {
+        if (!strategyEnabled) {
+            throw new IllegalStateException("Cannot start: strategy is disabled in configuration");
+        }
+        this.running = true;
+        logger.info("Strategy STARTED (toggle ON)");
+    }
+
+    public void stop() {
+        this.running = false;
+        logger.info("Strategy STOPPED (toggle OFF)");
+    }
+
+    public boolean toggle() {
+        if (!strategyEnabled) {
+            throw new IllegalStateException("Cannot toggle: strategy is disabled in configuration");
+        }
+        this.running = !this.running;
+        logger.info("Strategy toggled: running={}", this.running);
+        return this.running;
+    }
+
     public String getStrategyStatus() {
-        return String.format("Strategy: HYPEUSDT 5m SCALPING | Enabled: %s | Symbol: %s | " +
+        return String.format("Swing Multi-Pair: %s | Enabled: %s | Running: %s | " +
                         "RSI(%d) < %.0f / > %.0f | Lookback: %d | Killzone: %.1f%% | Min Momentum: %.1f%% | " +
                         "Context: %s",
-                strategyEnabled, symbol, rsiLength, rsiOversold, rsiOverbought,
+                symbols, strategyEnabled, running, rsiLength, rsiOversold, rsiOverbought,
                 lookbackBars, killzoneThreshold, minMomentum, contextEnabled);
     }
 }

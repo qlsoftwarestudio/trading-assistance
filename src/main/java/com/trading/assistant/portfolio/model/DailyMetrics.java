@@ -13,7 +13,13 @@ public class DailyMetrics {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false, length = 20)
+    private String symbol = "HYPEUSDT";
+
+    @Column(name = "user_id")
+    private Long userId;
+
+    @Column(nullable = false)
     private LocalDate date;
 
     private Integer totalTrades = 0;
@@ -52,9 +58,20 @@ public class DailyMetrics {
         this.date = date;
     }
 
+    public DailyMetrics(String symbol, LocalDate date) {
+        this.symbol = symbol;
+        this.date = date;
+    }
+
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
+    public String getSymbol() { return symbol; }
+    public void setSymbol(String symbol) { this.symbol = symbol; }
+
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
 
     public LocalDate getDate() { return date; }
     public void setDate(LocalDate date) { this.date = date; }

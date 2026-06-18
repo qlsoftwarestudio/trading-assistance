@@ -6,6 +6,7 @@ import com.trading.assistant.portfolio.model.DailyMetrics;
 import com.trading.assistant.portfolio.model.Trade;
 import com.trading.assistant.portfolio.repository.TradeRepository;
 import com.trading.assistant.strategy.HypeStrategy;
+import com.trading.assistant.strategy.ScalpStrategy;
 import com.trading.assistant.strategy.backtest.BacktestResult;
 import com.trading.assistant.strategy.backtest.BacktestService;
 import com.trading.assistant.strategy.model.Signal;
@@ -41,6 +42,9 @@ public class DashboardController {
     private HypeStrategy hypeStrategy;
 
     @Autowired
+    private ScalpStrategy scalpStrategy;
+
+    @Autowired
     private BacktestService backtestService;
 
     @Autowired
@@ -63,9 +67,9 @@ public class DashboardController {
      * Get portfolio summary
      */
     @GetMapping("/dashboard/summary")
-    @Operation(summary = "Get portfolio summary", description = "Returns balance, P&L, win rate, and other metrics")
-    public ResponseEntity<Map<String, Object>> getDashboardSummary() {
-        Map<String, Object> summary = portfolioService.getPortfolioSummary();
+    @Operation(summary = "Get portfolio summary", description = "Returns balance, P&L, win rate, and other metrics. Optional ?symbol= filter.")
+    public ResponseEntity<Map<String, Object>> getDashboardSummary(@RequestParam(required = false) String symbol) {
+        Map<String, Object> summary = portfolioService.getPortfolioSummary(symbol);
         return ResponseEntity.ok(summary);
     }
 
@@ -73,15 +77,18 @@ public class DashboardController {
      * Get all trades (paginated)
      */
     @GetMapping("/dashboard/trades")
-    @Operation(summary = "Get trades", description = "Returns paginated list of all trades")
+    @Operation(summary = "Get trades", description = "Returns paginated list of all trades. Optional ?symbol= filter.")
     public ResponseEntity<Page<Trade>> getTrades(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        
-        PageRequest pageRequest = PageRequest.of(page, size, 
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String symbol) {
+
+        PageRequest pageRequest = PageRequest.of(page, size,
                 Sort.by(Sort.Direction.DESC, "entryTime"));
-        
-        Page<Trade> trades = tradeRepository.findAllByOrderByEntryTimeDesc(pageRequest);
+
+        Page<Trade> trades = symbol != null && !symbol.isEmpty()
+                ? tradeRepository.findBySymbolOrderByEntryTimeDesc(symbol, pageRequest)
+                : tradeRepository.findAllByOrderByEntryTimeDesc(pageRequest);
         return ResponseEntity.ok(trades);
     }
 
@@ -89,9 +96,11 @@ public class DashboardController {
      * Get open trades
      */
     @GetMapping("/dashboard/trades/open")
-    @Operation(summary = "Get open trades", description = "Returns list of currently open trades")
-    public ResponseEntity<List<Trade>> getOpenTrades() {
-        List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
+    @Operation(summary = "Get open trades", description = "Returns list of currently open trades. Optional ?symbol= filter.")
+    public ResponseEntity<List<Trade>> getOpenTrades(@RequestParam(required = false) String symbol) {
+        List<Trade> openTrades = symbol != null && !symbol.isEmpty()
+                ? tradeRepository.findBySymbolAndStatusOrderByEntryTimeDesc(symbol, "OPEN")
+                : tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
         return ResponseEntity.ok(openTrades);
     }
 
@@ -99,9 +108,11 @@ public class DashboardController {
      * Get recent signals
      */
     @GetMapping("/dashboard/signals")
-    @Operation(summary = "Get recent signals", description = "Returns last 50 generated signals")
-    public ResponseEntity<List<Signal>> getRecentSignals() {
-        List<Signal> signals = signalRepository.findTop50ByOrderByGeneratedAtDesc();
+    @Operation(summary = "Get recent signals", description = "Returns last 50 generated signals. Optional ?symbol= filter.")
+    public ResponseEntity<List<Signal>> getRecentSignals(@RequestParam(required = false) String symbol) {
+        List<Signal> signals = symbol != null && !symbol.isEmpty()
+                ? signalRepository.findTop50BySymbolOrderByGeneratedAtDesc(symbol)
+                : signalRepository.findTop50ByOrderByGeneratedAtDesc();
         return ResponseEntity.ok(signals);
     }
 
@@ -109,9 +120,9 @@ public class DashboardController {
      * Get latest daily metrics
      */
     @GetMapping("/dashboard/metrics")
-    @Operation(summary = "Get daily metrics", description = "Returns latest calculated daily metrics")
-    public ResponseEntity<DailyMetrics> getDailyMetrics() {
-        DailyMetrics metrics = portfolioService.getLatestMetrics();
+    @Operation(summary = "Get daily metrics", description = "Returns latest calculated daily metrics. Optional ?symbol= filter.")
+    public ResponseEntity<DailyMetrics> getDailyMetrics(@RequestParam(required = false) String symbol) {
+        DailyMetrics metrics = portfolioService.getLatestMetrics(symbol);
         if (metrics != null) {
             return ResponseEntity.ok(metrics);
         } else {
@@ -123,21 +134,55 @@ public class DashboardController {
      * Get all daily metrics history (for calendar/performance view)
      */
     @GetMapping("/dashboard/metrics/history")
-    @Operation(summary = "Get metrics history", description = "Returns all daily metrics ordered by date ascending")
-    public ResponseEntity<List<DailyMetrics>> getMetricsHistory() {
-        return ResponseEntity.ok(portfolioService.getAllMetricsHistory());
+    @Operation(summary = "Get metrics history", description = "Returns all daily metrics ordered by date ascending. Optional ?symbol= filter.")
+    public ResponseEntity<List<DailyMetrics>> getMetricsHistory(@RequestParam(required = false) String symbol) {
+        return ResponseEntity.ok(portfolioService.getAllMetricsHistory(symbol));
     }
 
     /**
-     * Get strategy status
+     * Get strategy status (both swing and hunter)
      */
     @GetMapping("/strategy/status")
-    @Operation(summary = "Get strategy status", description = "Returns current strategy configuration and status")
-    public ResponseEntity<Map<String, String>> getStrategyStatus() {
-        Map<String, String> status = new HashMap<>();
-        status.put("strategy", hypeStrategy.getStrategyStatus());
-        status.put("status", "ACTIVE");
+    @Operation(summary = "Get strategy status", description = "Returns current strategy configuration and running status")
+    public ResponseEntity<Map<String, Object>> getStrategyStatus() {
+        Map<String, Object> status = new HashMap<>();
+        status.put("swing", Map.of(
+                "running", hypeStrategy.isRunning(),
+                "description", hypeStrategy.getStrategyStatus()
+        ));
+        status.put("hunter", Map.of(
+                "running", scalpStrategy.isRunning()
+        ));
+        status.put("timestamp", java.time.LocalDateTime.now().toString());
         return ResponseEntity.ok(status);
+    }
+
+    /**
+     * Toggle swing strategy on/off
+     */
+    @PostMapping("/strategy/toggle")
+    @Operation(summary = "Toggle swing strategy", description = "Toggle swing (HypeStrategy) ON/OFF")
+    public ResponseEntity<Map<String, Object>> toggleSwingStrategy() {
+        boolean nowRunning = hypeStrategy.toggle();
+        Map<String, Object> response = new HashMap<>();
+        response.put("swingRunning", nowRunning);
+        response.put("message", nowRunning ? "Swing strategy STARTED" : "Swing strategy STOPPED");
+        response.put("timestamp", java.time.LocalDateTime.now().toString());
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Toggle hunter/scalp strategy on/off
+     */
+    @PostMapping("/strategy/hunter/toggle")
+    @Operation(summary = "Toggle hunter strategy", description = "Toggle hunter/scalp strategy ON/OFF")
+    public ResponseEntity<Map<String, Object>> toggleHunterStrategy() {
+        boolean nowRunning = scalpStrategy.toggle();
+        Map<String, Object> response = new HashMap<>();
+        response.put("hunterRunning", nowRunning);
+        response.put("message", nowRunning ? "Hunter strategy STARTED" : "Hunter strategy STOPPED");
+        response.put("timestamp", java.time.LocalDateTime.now().toString());
+        return ResponseEntity.ok(response);
     }
 
     /**

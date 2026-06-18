@@ -15,6 +15,9 @@ public class Signal {
     @Column(nullable = false, length = 20)
     private String symbol;
 
+    @Column(name = "user_id")
+    private Long userId;
+
     @Column(nullable = false, length = 10)
     private String action; // LONG or HOLD
 
@@ -154,6 +157,9 @@ public class Signal {
 
     // Market context getters/setters
     public String getTrend1h() { return trend1h; }
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
+
     public void setTrend1h(String trend1h) { this.trend1h = trend1h; }
 
     public String getTrend4h() { return trend4h; }

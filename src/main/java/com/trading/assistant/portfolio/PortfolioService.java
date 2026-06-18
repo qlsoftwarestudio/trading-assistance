@@ -71,7 +71,7 @@ public class PortfolioService {
             }
             
             // Calculate max drawdown from cumulative equity curve
-            BigDecimal maxDrawdown = calculateMaxDrawdown();
+            BigDecimal maxDrawdown = calculateMaxDrawdown(null);
             metrics.setMaxDrawdown(maxDrawdown);
 
             dailyMetricsRepository.save(metrics);
@@ -83,66 +83,82 @@ public class PortfolioService {
     }
 
     /**
-     * Get portfolio summary
+     * Get portfolio summary (global or by symbol)
      */
-    public Map<String, Object> getPortfolioSummary() {
+    public Map<String, Object> getPortfolioSummary(String symbol) {
         Map<String, Object> summary = new HashMap<>();
-        
-        // Balance
+
+        // Balance (global)
         BigDecimal balance = binanceClient.getBalance("USDT");
         summary.put("balance", balance);
-        
+
         // Trades stats
-        Long totalTrades = tradeRepository.count();
-        Long winningTrades = tradeRepository.countWinningTrades();
-        Long losingTrades = tradeRepository.countLosingTrades();
-        Long openTrades = tradeRepository.countByStatus("OPEN");
-        
+        Long totalTrades, winningTrades, losingTrades, openTrades;
+        if (symbol != null && !symbol.isEmpty()) {
+            totalTrades = tradeRepository.countBySymbolAndStatus(symbol, "CLOSED");
+            winningTrades = tradeRepository.countWinningTradesBySymbol(symbol);
+            losingTrades = tradeRepository.countLosingTradesBySymbol(symbol);
+            openTrades = tradeRepository.countBySymbolAndStatus(symbol, "OPEN");
+        } else {
+            totalTrades = tradeRepository.count();
+            winningTrades = tradeRepository.countWinningTrades();
+            losingTrades = tradeRepository.countLosingTrades();
+            openTrades = tradeRepository.countByStatus("OPEN");
+        }
+
         summary.put("totalTrades", totalTrades != null ? totalTrades : 0L);
         summary.put("winningTrades", winningTrades != null ? winningTrades : 0L);
         summary.put("losingTrades", losingTrades != null ? losingTrades : 0L);
         summary.put("openTrades", openTrades);
-        
+
         // Win rate
         if (totalTrades != null && totalTrades > 0) {
-            BigDecimal winRate = BigDecimal.valueOf(winningTrades)
+            BigDecimal winRate = BigDecimal.valueOf(winningTrades != null ? winningTrades : 0L)
                     .divide(BigDecimal.valueOf(totalTrades), 4, RoundingMode.HALF_UP)
                     .multiply(BigDecimal.valueOf(100));
             summary.put("winRate", winRate);
         } else {
             summary.put("winRate", BigDecimal.ZERO);
         }
-        
+
         // P&L
-        BigDecimal totalPnl = tradeRepository.calculateTotalPnl();
+        BigDecimal totalPnl = symbol != null && !symbol.isEmpty()
+                ? tradeRepository.calculateTotalPnlBySymbol(symbol)
+                : tradeRepository.calculateTotalPnl();
         summary.put("totalPnl", totalPnl != null ? totalPnl : BigDecimal.ZERO);
-        
+
         // Profit Factor
-        BigDecimal grossProfit = tradeRepository.calculateGrossProfit();
-        BigDecimal grossLoss = tradeRepository.calculateGrossLoss();
-        
+        BigDecimal grossProfit = symbol != null && !symbol.isEmpty()
+                ? tradeRepository.calculateGrossProfitBySymbol(symbol)
+                : tradeRepository.calculateGrossProfit();
+        BigDecimal grossLoss = symbol != null && !symbol.isEmpty()
+                ? tradeRepository.calculateGrossLossBySymbol(symbol)
+                : tradeRepository.calculateGrossLoss();
+
         if (grossLoss != null && grossLoss.compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal pf = grossProfit.divide(grossLoss, 4, RoundingMode.HALF_UP);
             summary.put("profitFactor", pf);
         } else {
-            summary.put("profitFactor", grossProfit.compareTo(BigDecimal.ZERO) > 0 ? 
+            summary.put("profitFactor", grossProfit != null && grossProfit.compareTo(BigDecimal.ZERO) > 0 ?
                     new BigDecimal("999.99") : BigDecimal.ZERO);
         }
-        
+
         // Max drawdown
-        summary.put("maxDrawdown", calculateMaxDrawdown());
+        summary.put("maxDrawdown", calculateMaxDrawdown(symbol));
 
         // Current price
-        BigDecimal currentPrice = binanceClient.getCurrentPrice();
+        BigDecimal currentPrice = symbol != null && !symbol.isEmpty()
+                ? binanceClient.getPrice(symbol)
+                : binanceClient.getCurrentPrice();
         summary.put("currentPrice", currentPrice);
-        
+
         return summary;
     }
 
     /**
      * Calculate max drawdown from cumulative PnL curve (peak-to-trough in $).
      */
-    private BigDecimal calculateMaxDrawdown() {
+    private BigDecimal calculateMaxDrawdown(String symbol) {
         try {
             List<Trade> trades = tradeRepository.findClosedTradesOrderByExitTimeAsc();
             if (trades == null || trades.isEmpty()) return BigDecimal.ZERO;
@@ -152,6 +168,7 @@ public class PortfolioService {
             BigDecimal maxDrawdown = BigDecimal.ZERO;
 
             for (Trade trade : trades) {
+                if (symbol != null && !symbol.isEmpty() && !symbol.equals(trade.getSymbol())) continue;
                 cumPnl = cumPnl.add(trade.getPnl());
                 if (cumPnl.compareTo(peak) > 0) {
                     peak = cumPnl;
@@ -171,14 +188,20 @@ public class PortfolioService {
     /**
      * Get latest daily metrics
      */
-    public DailyMetrics getLatestMetrics() {
+    public DailyMetrics getLatestMetrics(String symbol) {
+        if (symbol != null && !symbol.isEmpty()) {
+            return dailyMetricsRepository.findTopBySymbolOrderByDateDesc(symbol).orElse(null);
+        }
         return dailyMetricsRepository.findTopByOrderByDateDesc().orElse(null);
     }
 
     /**
      * Get all daily metrics ordered by date ascending (for calendar/history view)
      */
-    public List<DailyMetrics> getAllMetricsHistory() {
+    public List<DailyMetrics> getAllMetricsHistory(String symbol) {
+        if (symbol != null && !symbol.isEmpty()) {
+            return dailyMetricsRepository.findBySymbolOrderByDateAsc(symbol);
+        }
         return dailyMetricsRepository.findAllByOrderByDateAsc();
     }
 }

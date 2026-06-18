@@ -157,6 +157,29 @@ public class BinanceClient {
     }
 
     /**
+     * Get price for any symbol (multi-pair support)
+     */
+    public BigDecimal getPrice(String targetSymbol) {
+        if (!configured) {
+            logger.warn("Binance not configured. Returning demo price.");
+            return new BigDecimal("18.50");
+        }
+        try {
+            String url = "/fapi/v1/ticker/price?symbol=" + targetSymbol;
+            String response = webClient.get()
+                    .uri(url)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+            JsonNode root = mapper.readTree(response);
+            return new BigDecimal(root.get("price").asText());
+        } catch (Exception e) {
+            logger.error("Error getting price for {}: {}", targetSymbol, e.getMessage());
+            return BigDecimal.ZERO;
+        }
+    }
+
+    /**
      * Get klines (candlestick data) for technical analysis
      */
     public List<Kline> getKlines(String interval, int limit) {
