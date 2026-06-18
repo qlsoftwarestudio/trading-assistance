@@ -11,6 +11,9 @@ import com.trading.assistant.strategy.IndicatorCalculator;
 import com.trading.assistant.strategy.model.PriceProjection;
 import com.trading.assistant.strategy.model.Signal;
 import com.trading.assistant.strategy.repository.SignalRepository;
+import com.trading.assistant.user.model.Bot;
+import com.trading.assistant.user.repository.BotRepository;
+import com.trading.assistant.user.service.EncryptionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,6 +52,12 @@ public class TradeManager {
 
     @Autowired
     private TradeJournalRepository tradeJournalRepository;
+
+    @Autowired
+    private BotRepository botRepository;
+
+    @Autowired
+    private EncryptionService encryptionService;
 
     @Value("${trading.strategy.stop-loss-pct:2.0}")
     private double stopLossPct;
@@ -230,17 +239,56 @@ public class TradeManager {
     }
 
     /**
+     * Resolve bot-specific Binance credentials for order placement.
+     * Returns null array if no bot credentials found (falls back to server keys).
+     */
+    private String[] resolveBotCredentials(Long userId, String sym) {
+        if (userId == null) return null;
+        try {
+            List<Bot> bots = botRepository.findByEnabledTrueAndRunningTrue();
+            return bots.stream()
+                    .filter(b -> userId.equals(b.getUser() != null ? b.getUser().getId() : null)
+                              && sym.equals(b.getSymbol()))
+                    .findFirst()
+                    .map(b -> new String[]{
+                            encryptionService.decrypt(b.getApiKeyEncrypted()),
+                            encryptionService.decrypt(b.getApiSecretEncrypted())
+                    })
+                    .orElse(null);
+        } catch (Exception e) {
+            logger.warn("Could not resolve bot credentials for userId={} sym={}: {}", userId, sym, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Execute LONG entry based on signal
      */
     public void executeLongEntry(Signal signal) {
-        executeEntry(signal, "LONG", binanceClient::placeBuyOrder);
+        Long userId = signal.getUserId();
+        String sym = signal.getSymbol() != null ? signal.getSymbol().toString() : symbol;
+        String[] creds = resolveBotCredentials(userId, sym);
+        if (creds != null) {
+            logger.info("Using bot-specific API keys for LONG entry (userId={}, sym={})", userId, sym);
+            executeEntry(signal, "LONG", qty -> binanceClient.placeBuyOrderForBot(qty, creds[0], creds[1], sym));
+        } else {
+            executeEntry(signal, "LONG", binanceClient::placeBuyOrder);
+        }
     }
 
     /**
      * Execute SHORT entry based on signal
      */
     public void executeShortEntry(Signal signal) {
-        executeEntry(signal, "SHORT", binanceClient::placeShortSellOrder);
+        Long userId = signal.getUserId();
+        String sym = signal.getSymbol() != null ? signal.getSymbol().toString() : symbol;
+        String[] creds = resolveBotCredentials(userId, sym);
+        if (creds != null) {
+            logger.info("Using bot-specific API keys for SHORT entry (userId={}, sym={})", userId, sym);
+            executeEntry(signal, "SHORT", qty -> binanceClient.placeShortSellOrderForBot(qty, creds[0], creds[1], sym));
+        } else {
+            executeEntry(signal, "SHORT", binanceClient::placeShortSellOrder);
+        }
     }
 
     // ============== SCALP / HUNTER ENTRIES ==============

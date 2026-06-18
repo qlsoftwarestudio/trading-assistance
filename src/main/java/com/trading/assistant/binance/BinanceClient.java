@@ -587,16 +587,73 @@ public class BinanceClient {
         }
     }
 
+    // ============== PER-BOT ORDER PLACEMENT ==============
+
+    /**
+     * Place a market order using bot-specific API credentials (multi-tenant support).
+     * Falls back to server credentials if botApiKey is null/empty.
+     */
+    public String placeOrderForBot(String side, String positionSide, BigDecimal quantity,
+                                    boolean reduceOnly, String botApiKey, String botApiSecret,
+                                    String targetSymbol) {
+        if (botApiKey == null || botApiKey.isEmpty()) {
+            return placeOrder(side, positionSide, quantity, reduceOnly);
+        }
+        try {
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", targetSymbol);
+            params.put("side", side);
+            if (hedgeMode) params.put("positionSide", positionSide);
+            params.put("type", "MARKET");
+            params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
+            if (reduceOnly) params.put("reduceOnly", "true");
+
+            String query = buildSignedQueryWithCredentials(params, botApiSecret);
+            String response = webClient.post()
+                    .uri("/fapi/v1/order?" + query)
+                    .header("X-MBX-APIKEY", botApiKey)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            logger.info("[Bot] Order placed ({}): {}", targetSymbol, response);
+            return extractOrderId(response);
+        } catch (Exception e) {
+            logger.error("[Bot] Error placing {} order for {}: {}", side, targetSymbol, e.getMessage());
+            return null;
+        }
+    }
+
+    public String placeBuyOrderForBot(BigDecimal quantity, String apiKey, String apiSecret, String sym) {
+        return placeOrderForBot("BUY", "LONG", quantity, false, apiKey, apiSecret, sym);
+    }
+
+    public String placeSellOrderForBot(BigDecimal quantity, String apiKey, String apiSecret, String sym) {
+        return placeOrderForBot("SELL", "LONG", quantity, true, apiKey, apiSecret, sym);
+    }
+
+    public String placeShortSellOrderForBot(BigDecimal quantity, String apiKey, String apiSecret, String sym) {
+        return placeOrderForBot("SELL", "SHORT", quantity, false, apiKey, apiSecret, sym);
+    }
+
+    public String placeShortBuyOrderForBot(BigDecimal quantity, String apiKey, String apiSecret, String sym) {
+        return placeOrderForBot("BUY", "SHORT", quantity, true, apiKey, apiSecret, sym);
+    }
+
     // ============== PRIVATE HELPERS ==============
 
     private String buildSignedQuery(LinkedHashMap<String, Object> params) {
+        return buildSignedQueryWithCredentials(params, apiSecret);
+    }
+
+    private String buildSignedQueryWithCredentials(LinkedHashMap<String, Object> params, String secret) {
         params.put("timestamp", System.currentTimeMillis());
         StringBuilder query = new StringBuilder();
         params.forEach((k, v) -> {
             if (query.length() > 0) query.append("&");
             query.append(k).append("=").append(v);
         });
-        String signature = hmacSha256(query.toString(), apiSecret);
+        String signature = hmacSha256(query.toString(), secret);
         query.append("&signature=").append(signature);
         return query.toString();
     }

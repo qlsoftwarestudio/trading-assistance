@@ -5,6 +5,8 @@ import com.trading.assistant.portfolio.model.DailyMetrics;
 import com.trading.assistant.portfolio.model.Trade;
 import com.trading.assistant.portfolio.repository.DailyMetricsRepository;
 import com.trading.assistant.portfolio.repository.TradeRepository;
+import com.trading.assistant.user.model.User;
+import com.trading.assistant.user.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,54 +34,67 @@ public class PortfolioService {
     @Autowired
     private BinanceClient binanceClient;
 
-    /**
-     * Calculate daily metrics and save
-     */
-    @Scheduled(cron = "0 0 0 * * *") // Every day at midnight
-    public void calculateDailyMetrics() {
-        try {
-            LocalDate today = LocalDate.now();
-            
-            DailyMetrics metrics = new DailyMetrics(today);
-            
-            // Get counts
-            Long totalTrades = tradeRepository.count();
-            Long winningTrades = tradeRepository.countWinningTrades();
-            Long losingTrades = tradeRepository.countLosingTrades();
-            
-            metrics.setTotalTrades(totalTrades != null ? totalTrades.intValue() : 0);
-            metrics.setWinningTrades(winningTrades != null ? winningTrades.intValue() : 0);
-            metrics.setLosingTrades(losingTrades != null ? losingTrades.intValue() : 0);
-            
-            // Get P&L
-            BigDecimal totalPnl = tradeRepository.calculateTotalPnl();
-            metrics.setTotalPnl(totalPnl != null ? totalPnl : BigDecimal.ZERO);
-            
-            // Calculate derived metrics
-            metrics.calculateMetrics();
-            
-            // Calculate profit factor
-            BigDecimal grossProfit = tradeRepository.calculateGrossProfit();
-            BigDecimal grossLoss = tradeRepository.calculateGrossLoss();
-            
-            if (grossLoss != null && grossLoss.compareTo(BigDecimal.ZERO) > 0) {
-                BigDecimal pf = grossProfit.divide(grossLoss, 4, RoundingMode.HALF_UP);
-                metrics.setProfitFactor(pf);
-            } else {
-                metrics.setProfitFactor(grossProfit.compareTo(BigDecimal.ZERO) > 0 ? 
-                        new BigDecimal("999.99") : BigDecimal.ZERO);
-            }
-            
-            // Calculate max drawdown from cumulative equity curve
-            BigDecimal maxDrawdown = calculateMaxDrawdown(null, null);
-            metrics.setMaxDrawdown(maxDrawdown);
+    @Autowired
+    private UserRepository userRepository;
 
-            dailyMetricsRepository.save(metrics);
-            logger.info("Daily metrics calculated and saved for {}", today);
-            
-        } catch (Exception e) {
-            logger.error("Error calculating daily metrics: {}", e.getMessage(), e);
+    /**
+     * Calculate daily metrics per user and save. Runs at midnight every day.
+     */
+    @Scheduled(cron = "0 0 0 * * *")
+    public void calculateDailyMetrics() {
+        List<User> users = userRepository.findAll();
+        if (users.isEmpty()) {
+            logger.warn("No users found — skipping daily metrics calculation");
+            return;
         }
+        logger.info("Calculating daily metrics for {} users", users.size());
+        for (User user : users) {
+            try {
+                calculateDailyMetricsForUser(user.getId());
+            } catch (Exception e) {
+                logger.error("Error calculating daily metrics for userId={}: {}", user.getId(), e.getMessage(), e);
+            }
+        }
+    }
+
+    /**
+     * Calculate and persist today's snapshot metrics for a specific user.
+     */
+    public void calculateDailyMetricsForUser(Long userId) {
+        LocalDate today = LocalDate.now();
+
+        DailyMetrics metrics = new DailyMetrics(today);
+        metrics.setUserId(userId);
+
+        Long totalTrades = tradeRepository.countByUserIdAndStatus(userId, "CLOSED");
+        Long winningTrades = tradeRepository.countWinningTradesByUserId(userId);
+        Long losingTrades = tradeRepository.countLosingTradesByUserId(userId);
+
+        metrics.setTotalTrades(totalTrades != null ? totalTrades.intValue() : 0);
+        metrics.setWinningTrades(winningTrades != null ? winningTrades.intValue() : 0);
+        metrics.setLosingTrades(losingTrades != null ? losingTrades.intValue() : 0);
+
+        BigDecimal totalPnl = tradeRepository.calculateTotalPnlByUserId(userId);
+        metrics.setTotalPnl(totalPnl != null ? totalPnl : BigDecimal.ZERO);
+
+        metrics.calculateMetrics();
+
+        BigDecimal grossProfit = tradeRepository.calculateGrossProfitByUserId(userId);
+        BigDecimal grossLoss = tradeRepository.calculateGrossLossByUserId(userId);
+
+        if (grossLoss != null && grossLoss.compareTo(BigDecimal.ZERO) > 0) {
+            metrics.setProfitFactor(grossProfit.divide(grossLoss, 4, RoundingMode.HALF_UP));
+        } else {
+            metrics.setProfitFactor(grossProfit != null && grossProfit.compareTo(BigDecimal.ZERO) > 0
+                    ? new BigDecimal("999.99") : BigDecimal.ZERO);
+        }
+
+        BigDecimal maxDrawdown = calculateMaxDrawdown(null, userId);
+        metrics.setMaxDrawdown(maxDrawdown);
+
+        dailyMetricsRepository.save(metrics);
+        logger.info("Daily metrics saved for userId={} date={}: trades={}, pnl={}",
+                userId, today, metrics.getTotalTrades(), metrics.getTotalPnl());
     }
 
     /**
