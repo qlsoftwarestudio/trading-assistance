@@ -546,8 +546,10 @@ public class TradeManager {
                             ? (currentPrice.doubleValue() - stopLoss.doubleValue()) / currentPrice.doubleValue() * 100.0
                             : (stopLoss.doubleValue() - currentPrice.doubleValue()) / currentPrice.doubleValue() * 100.0;
                     if (slDistancePct > maxAtrSlPct) {
-                        logger.warn("ATR-based SL too wide ({:.2f}% > {:.1f}% max, ATR={:.4f}) — using fixed SL",
-                                slDistancePct, maxAtrSlPct, atr);
+                        logger.warn("ATR-based SL too wide ({}% > {}% max, ATR={}) — using fixed SL",
+                                String.format("%.2f", slDistancePct),
+                                String.format("%.1f", maxAtrSlPct),
+                                String.format("%.4f", atr));
                         stopLoss = calculateFixedStopLoss(currentPrice, isLong);
                         takeProfit = calculateFixedTakeProfit(currentPrice, isLong);
                     } else {
@@ -559,9 +561,13 @@ public class TradeManager {
                             takeProfit = currentPrice.subtract(risk.multiply(BigDecimal.valueOf(2)));
                         }
                         takeProfit = takeProfit.setScale(8, RoundingMode.HALF_UP);
-                        logger.info("ATR-based SL/TP for {}: ATR={:.4f}, SL={} ({:.2f}%), TP={} ({:.2f}%)",
-                                action, atr, stopLoss, slDistancePct,
-                                takeProfit, slDistancePct * 2);
+                        logger.info("ATR-based SL/TP for {}: ATR={}, SL={} ({}%), TP={} ({}%)",
+                                action,
+                                String.format("%.4f", atr),
+                                stopLoss,
+                                String.format("%.2f", slDistancePct),
+                                takeProfit,
+                                String.format("%.2f", slDistancePct * 2));
                     }
                 } else {
                     logger.warn("ATR calculation failed, falling back to fixed pct stop");
