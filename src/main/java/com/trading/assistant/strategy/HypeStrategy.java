@@ -61,9 +61,6 @@ public class HypeStrategy {
     @Value("${trading.strategy.symbols:HYPEUSDT}")
     private List<String> symbols;
 
-    private String symbol; // current symbol being processed in multi-pair loop
-    private volatile Long currentUserId = 1L; // userId of the bot currently being processed
-
     private final Set<String> disabledSymbols = ConcurrentHashMap.newKeySet();
 
     @Value("${trading.strategy.rsi-length:5}")
@@ -206,14 +203,12 @@ public class HypeStrategy {
         for (Bot bot : activeBots) {
             String sym = bot.getSymbol();
             Long userId = bot.getUser() != null ? bot.getUser().getId() : 1L;
-            this.symbol = sym;
-            this.currentUserId = userId;
             logger.info("▶ Executing strategy for bot '{}' (userId={}, symbol={})", bot.getName(), userId, sym);
-            executeStrategyForSymbol(sym);
+            executeStrategyForSymbol(sym, userId);
         }
     }
 
-    private void executeStrategyForSymbol(String sym) {
+    private void executeStrategyForSymbol(String sym, Long userId) {
         logger.info("Executing {} 5m swing strategy...", sym);
 
         try {
@@ -300,18 +295,18 @@ public class HypeStrategy {
                         pressure);
             }
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio);
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, sym, userId);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, sym, userId);
 
             // Update trailing stops and time exits for open trades (data already fetched above)
-            tradeManager.updateTrailingAndTimeExit(sym, currentUserId, currentPrice, currentKline, projection);
+            tradeManager.updateTrailingAndTimeExit(sym, userId, currentPrice, currentKline, projection);
 
         } catch (Exception e) {
             logger.error("Error executing strategy: {}", e.getMessage(), e);
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio) {
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, String sym, Long userId) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean extremeOversold = rsi < emaExtremeRsiThreshold;
@@ -329,8 +324,8 @@ public class HypeStrategy {
                 && rsi < trendDipRsiThreshold;
 
         if (meanReversionCondition || breakoutCondition || trendDipCondition) {
-            if (tradeManager.hasOpenPosition(symbol, currentUserId, "LONG")) {
-                logger.info("LONG position already open for userId={} symbol={}. Skipping.", currentUserId, symbol);
+            if (tradeManager.hasOpenPosition(sym, userId, "LONG")) {
+                logger.info("LONG position already open for userId={} symbol={}. Skipping.", userId, sym);
                 return;
             }
 
@@ -408,7 +403,7 @@ public class HypeStrategy {
                     String.format("%.2f", relativeVolume), String.format("%.4f", momentum));
 
             Signal signal = new Signal(
-                    symbol,
+                    sym,
                     "LONG",
                     currentPrice,
                     BigDecimal.valueOf(rsi),
@@ -419,7 +414,7 @@ public class HypeStrategy {
                     inSellZone
             );
             signal.setSetupType(entryType);
-            signal.setUserId(currentUserId);
+            signal.setUserId(userId);
 
             // Regression channel filter: for mean-reversion LONG, price should be in lower half of channel
             // Bypassed when extreme oversold or volume spike override is active (capitulation event)
@@ -481,7 +476,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio) {
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, String sym, Long userId) {
         boolean rsiReversingDown = rsi < previousRsi;
 
         // Dynamic RSI threshold: higher bar when shorting into strong uptrend
@@ -523,8 +518,8 @@ public class HypeStrategy {
         }
 
         if (meanReversionCondition || breakoutCondition || trendDipShortCondition) {
-            if (tradeManager.hasOpenPosition(symbol, currentUserId, "SHORT")) {
-                logger.info("SHORT position already open for userId={} symbol={}. Skipping.", currentUserId, symbol);
+            if (tradeManager.hasOpenPosition(sym, userId, "SHORT")) {
+                logger.info("SHORT position already open for userId={} symbol={}. Skipping.", userId, sym);
                 return;
             }
 
@@ -618,7 +613,7 @@ public class HypeStrategy {
                     String.format("%.2f", relativeVolume), String.format("%.4f", momentum));
 
             Signal signal = new Signal(
-                    symbol,
+                    sym,
                     "SHORT",
                     currentPrice,
                     BigDecimal.valueOf(rsi),
@@ -629,7 +624,7 @@ public class HypeStrategy {
                     inSellZone
             );
             signal.setSetupType(entryType);
-            signal.setUserId(currentUserId);
+            signal.setUserId(userId);
 
             // Regression channel filter: for mean-reversion SHORT, price should be in upper half of channel
             // Bypassed when extreme overbought or volume spike override is active (blow-off top event)
