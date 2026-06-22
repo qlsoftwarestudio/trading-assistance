@@ -220,7 +220,7 @@ public class HypeStrategy {
             // 1. Market context analysis (multi-timeframe, volume, BTC)
             MarketContext marketContext = null;
             if (contextEnabled) {
-                marketContext = marketContextAnalyzer.analyze();
+                marketContext = marketContextAnalyzer.analyze(sym);
                 if (marketContext != null) {
                     logger.info("Market Context: trend1h={}, trend4h={}, trend1d={}, confluence={}, vol={}x",
                             marketContext.getTrend1h(), marketContext.getTrend4h(), marketContext.getTrend1d(),

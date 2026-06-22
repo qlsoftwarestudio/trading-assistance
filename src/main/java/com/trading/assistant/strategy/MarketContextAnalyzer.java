@@ -44,7 +44,7 @@ public class MarketContextAnalyzer {
      * Build market context for the configured symbol.
      * Returns null if context analysis is disabled.
      */
-    public MarketContext analyze() {
+    public MarketContext analyze(String sym) {
         if (!contextEnabled) {
             logger.debug("Market context analysis is disabled");
             return null;
@@ -55,9 +55,9 @@ public class MarketContextAnalyzer {
             ctx.setTimeframe("15m");
 
             // 1. Multi-timeframe trend detection
-            List<Kline> klines1h = binanceClient.getKlines(symbol, "1h", 250);
-            List<Kline> klines4h = binanceClient.getKlines(symbol, "4h", 200);
-            List<Kline> klines1d = binanceClient.getKlines(symbol, "1d", 50);
+            List<Kline> klines1h = binanceClient.getKlines(sym, "1h", 250);
+            List<Kline> klines4h = binanceClient.getKlines(sym, "4h", 200);
+            List<Kline> klines1d = binanceClient.getKlines(sym, "1d", 50);
 
             if (klines1h != null && klines1h.size() >= 200) {
                 ctx.setTrend1h(indicatorCalculator.detectTrend(klines1h));
@@ -102,7 +102,7 @@ public class MarketContextAnalyzer {
             }
 
             // 3. Support / Resistance (use 4h for meaningful levels)
-            BigDecimal currentPrice = binanceClient.getCurrentPrice();
+            BigDecimal currentPrice = binanceClient.getPrice(sym);
             if (klines4h != null && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
                 BigDecimal support = indicatorCalculator.findNearestSupport(klines4h, currentPrice, 60);
                 BigDecimal resistance = indicatorCalculator.findNearestResistance(klines4h, currentPrice, 60);
@@ -113,7 +113,7 @@ public class MarketContextAnalyzer {
             }
 
             // 4. BTC Correlation
-            analyzeBtcCorrelation(ctx, symbol, currentPrice);
+            analyzeBtcCorrelation(ctx, sym, currentPrice);
 
             // 5. Confluence check
             int upCount = 0, downCount = 0;
