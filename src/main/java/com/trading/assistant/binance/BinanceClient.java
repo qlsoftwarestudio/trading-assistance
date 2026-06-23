@@ -225,12 +225,16 @@ public class BinanceClient {
      * Set leverage for symbol
      */
     public void setLeverage(int leverage) {
+        setLeverageForSymbol(symbol, leverage);
+    }
+
+    public void setLeverageForSymbol(String targetSymbol, int leverage) {
         if (!configured) {
             return;
         }
         try {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
-            params.put("symbol", symbol);
+            params.put("symbol", targetSymbol);
             params.put("leverage", leverage);
             String query = buildSignedQuery(params);
 
@@ -241,9 +245,33 @@ public class BinanceClient {
                     .bodyToMono(String.class)
                     .block();
 
-            logger.info("Leverage set: {}", response);
+            logger.info("Leverage set for {}: {}", targetSymbol, response);
         } catch (Exception e) {
-            logger.error("Error setting leverage: {}", e.getMessage());
+            logger.error("Error setting leverage for {}: {}", targetSymbol, e.getMessage());
+        }
+    }
+
+    public void setLeverageForBot(String targetSymbol, int leverage, String botApiKey, String botApiSecret) {
+        if (botApiKey == null || botApiKey.isEmpty()) {
+            setLeverageForSymbol(targetSymbol, leverage);
+            return;
+        }
+        try {
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", targetSymbol);
+            params.put("leverage", leverage);
+            String query = buildSignedQueryWithCredentials(params, botApiSecret);
+
+            String response = webClient.post()
+                    .uri("/fapi/v1/leverage?" + query)
+                    .header("X-MBX-APIKEY", botApiKey)
+                    .retrieve()
+                    .bodyToMono(String.class)
+                    .block();
+
+            logger.info("[Bot] Leverage set for {}: {}", targetSymbol, response);
+        } catch (Exception e) {
+            logger.error("[Bot] Error setting leverage for {}: {}", targetSymbol, e.getMessage());
         }
     }
 
@@ -512,12 +540,10 @@ public class BinanceClient {
             if (hedgeMode) {
                 params.put("positionSide", positionSide);
             }
-            params.put("algotype", "CONDITIONAL");
-            params.put("orderType", type);
+            params.put("type", type);
             params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             params.put("reduceOnly", "true");
-            params.put("triggerPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
-            params.put("workingType", "CONTRACT_PRICE");
+            params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
 
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
                 params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
@@ -588,7 +614,6 @@ public class BinanceClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", symbol);
             params.put("algoId", orderId);
-            params.put("algotype", "CONDITIONAL");
             String query = buildSignedQuery(params);
 
             webClient.delete()
@@ -807,11 +832,10 @@ public class BinanceClient {
             if (hedgeMode) {
                 params.put("positionSide", positionSide);
             }
-            params.put("algotype", "CONDITIONAL");
-            params.put("orderType", type);
+            params.put("type", type);
             params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             params.put("reduceOnly", "true");
-            params.put("triggerPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
 
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
                 params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
@@ -868,7 +892,6 @@ public class BinanceClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", targetSymbol);
             params.put("algoId", orderId);
-            params.put("algotype", "CONDITIONAL");
             String query = buildSignedQueryWithCredentials(params, botApiSecret);
 
             webClient.delete()

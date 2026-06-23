@@ -536,6 +536,14 @@ public class TradeManager {
         try {
             BigDecimal currentPrice = signal.getPrice();
             String tradeSymbol = signal.getSymbol() != null ? signal.getSymbol() : symbol;
+
+            // Set leverage for this symbol before trading
+            if (botCreds != null) {
+                binanceClient.setLeverageForBot(tradeSymbol, leverage, botCreds[0], botCreds[1]);
+            } else {
+                binanceClient.setLeverageForSymbol(tradeSymbol, leverage);
+            }
+
             BigDecimal balance = (botCreds != null)
                     ? binanceClient.getBalanceForBot("USDT", botCreds[0], botCreds[1])
                     : binanceClient.getBalance("USDT");
@@ -865,10 +873,14 @@ public class TradeManager {
             String tpSide = isLong ? "SELL" : "BUY";
             String positionSide = isLong ? "LONG" : "SHORT";
             BigDecimal quantity = trade.getQuantity();
+            String tradeSymbol = trade.getSymbol() != null ? trade.getSymbol() : symbol;
+            String[] botCreds = resolveBotCredentials(trade.getUserId(), tradeSymbol);
 
             if (trade.getStopLossOrderId() == null || trade.getStopLossOrderId().isEmpty()) {
                 logger.warn("Missing SL order for Trade {} — creating now", trade.getId());
-                String slOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, quantity, trade.getStopLoss());
+                String slOrderId = (botCreds != null)
+                        ? binanceClient.placeStopLossOrderForBot(slSide, positionSide, quantity, trade.getStopLoss(), botCreds[0], botCreds[1], tradeSymbol)
+                        : binanceClient.placeStopLossOrder(slSide, positionSide, quantity, trade.getStopLoss());
                 if (slOrderId != null) {
                     trade.setStopLossOrderId(slOrderId);
                     tradeRepository.save(trade);
@@ -880,7 +892,9 @@ public class TradeManager {
 
             if (trade.getTakeProfitOrderId() == null || trade.getTakeProfitOrderId().isEmpty()) {
                 logger.warn("Missing TP order for Trade {} — creating now", trade.getId());
-                String tpOrderId = binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, trade.getTakeProfit());
+                String tpOrderId = (botCreds != null)
+                        ? binanceClient.placeTakeProfitOrderForBot(tpSide, positionSide, quantity, trade.getTakeProfit(), botCreds[0], botCreds[1], tradeSymbol)
+                        : binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, trade.getTakeProfit());
                 if (tpOrderId != null) {
                     trade.setTakeProfitOrderId(tpOrderId);
                     tradeRepository.save(trade);
