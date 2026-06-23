@@ -325,9 +325,9 @@ public class TradeManager {
         String[] creds = resolveBotCredentials(userId, sym);
         if (creds != null) {
             logger.info("Using bot-specific API keys for LONG entry (userId={}, sym={})", userId, sym);
-            executeEntry(signal, "LONG", qty -> binanceClient.placeBuyOrderForBot(qty, creds[0], creds[1], sym));
+            executeEntry(signal, "LONG", qty -> binanceClient.placeBuyOrderForBot(qty, creds[0], creds[1], sym), creds);
         } else {
-            executeEntry(signal, "LONG", binanceClient::placeBuyOrder);
+            executeEntry(signal, "LONG", binanceClient::placeBuyOrder, null);
         }
     }
 
@@ -340,9 +340,9 @@ public class TradeManager {
         String[] creds = resolveBotCredentials(userId, sym);
         if (creds != null) {
             logger.info("Using bot-specific API keys for SHORT entry (userId={}, sym={})", userId, sym);
-            executeEntry(signal, "SHORT", qty -> binanceClient.placeShortSellOrderForBot(qty, creds[0], creds[1], sym));
+            executeEntry(signal, "SHORT", qty -> binanceClient.placeShortSellOrderForBot(qty, creds[0], creds[1], sym), creds);
         } else {
-            executeEntry(signal, "SHORT", binanceClient::placeShortSellOrder);
+            executeEntry(signal, "SHORT", binanceClient::placeShortSellOrder, null);
         }
     }
 
@@ -532,10 +532,13 @@ public class TradeManager {
         }
     }
 
-    private void executeEntry(Signal signal, String action, OrderPlacer orderPlacer) {
+    private void executeEntry(Signal signal, String action, OrderPlacer orderPlacer, String[] botCreds) {
         try {
             BigDecimal currentPrice = signal.getPrice();
-            BigDecimal balance = binanceClient.getBalance("USDT");
+            String tradeSymbol = signal.getSymbol() != null ? signal.getSymbol() : symbol;
+            BigDecimal balance = (botCreds != null)
+                    ? binanceClient.getBalanceForBot("USDT", botCreds[0], botCreds[1])
+                    : binanceClient.getBalance("USDT");
 
             // Check daily loss limit
             if (isDailyLossLimitHit(balance)) {
@@ -606,7 +609,6 @@ public class TradeManager {
             BigDecimal takeProfit;
             boolean isLong = "LONG".equals(action);
 
-            String tradeSymbol = signal.getSymbol() != null ? signal.getSymbol() : symbol;
             if (useAtrStop) {
                 List<Kline> klines = binanceClient.getKlines(tradeSymbol, "5m", atrPeriod + 5);
                 double atr = indicatorCalculator.calculateATR(klines, atrPeriod);
@@ -728,8 +730,12 @@ public class TradeManager {
                 String tpSide = isLong ? "SELL" : "BUY";
                 String positionSide = isLong ? "LONG" : "SHORT";
 
-                String slOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, quantity, stopLoss);
-                String tpOrderId = binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, takeProfit);
+                String slOrderId = (botCreds != null)
+                        ? binanceClient.placeStopLossOrderForBot(slSide, positionSide, quantity, stopLoss, botCreds[0], botCreds[1], tradeSymbol)
+                        : binanceClient.placeStopLossOrder(slSide, positionSide, quantity, stopLoss);
+                String tpOrderId = (botCreds != null)
+                        ? binanceClient.placeTakeProfitOrderForBot(tpSide, positionSide, quantity, takeProfit, botCreds[0], botCreds[1], tradeSymbol)
+                        : binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, takeProfit);
 
                 if (slOrderId != null && tpOrderId != null) {
                     trade.setStopLossOrderId(slOrderId);
@@ -1211,12 +1217,23 @@ public class TradeManager {
 
     private void closeTradeFromEvent(Trade trade, BigDecimal exitPrice, String reason) {
         try {
+            String tradeSymbol = trade.getSymbol() != null ? trade.getSymbol() : symbol;
+            String[] botCreds = resolveBotCredentials(trade.getUserId(), tradeSymbol);
+
             // Cancel remaining conditional orders
             if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().equals(trade.getBinanceOrderId())) {
-                binanceClient.cancelOrder(trade.getStopLossOrderId());
+                if (botCreds != null) {
+                    binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol);
+                } else {
+                    binanceClient.cancelOrder(trade.getStopLossOrderId());
+                }
             }
             if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
-                binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                if (botCreds != null) {
+                    binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol);
+                } else {
+                    binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                }
             }
 
             // Commission = round-trip taker fee on notional (0.05% entry + 0.05% exit = 0.10%)
@@ -1244,20 +1261,34 @@ public class TradeManager {
 
     private void closeTrade(Trade trade, BigDecimal exitPrice, String reason) {
         try {
+            String tradeSymbol = trade.getSymbol() != null ? trade.getSymbol() : symbol;
+            String[] botCreds = resolveBotCredentials(trade.getUserId(), tradeSymbol);
+
             // Cancel remaining conditional orders first (so Binance doesn't fire SL/TP after manual close)
             if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().equals(trade.getBinanceOrderId())) {
-                binanceClient.cancelOrder(trade.getStopLossOrderId());
+                if (botCreds != null) {
+                    binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol);
+                } else {
+                    binanceClient.cancelOrder(trade.getStopLossOrderId());
+                }
             }
             if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
-                binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                if (botCreds != null) {
+                    binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol);
+                } else {
+                    binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                }
             }
 
             String orderId;
-            String tradeSymbol = trade.getSymbol() != null ? trade.getSymbol() : symbol;
             if ("SHORT".equals(trade.getAction())) {
-                orderId = binanceClient.placeShortBuyOrderForSymbol(tradeSymbol, trade.getQuantity());
+                orderId = (botCreds != null)
+                        ? binanceClient.placeShortBuyOrderForBot(trade.getQuantity(), botCreds[0], botCreds[1], tradeSymbol)
+                        : binanceClient.placeShortBuyOrderForSymbol(tradeSymbol, trade.getQuantity());
             } else {
-                orderId = binanceClient.placeSellOrderForSymbol(tradeSymbol, trade.getQuantity());
+                orderId = (botCreds != null)
+                        ? binanceClient.placeSellOrderForBot(trade.getQuantity(), botCreds[0], botCreds[1], tradeSymbol)
+                        : binanceClient.placeSellOrderForSymbol(tradeSymbol, trade.getQuantity());
             }
 
             if (orderId != null) {

@@ -226,7 +226,7 @@ public class HypeStrategy {
             return;
         }
 
-        List<Bot> activeBots = botRepository.findByEnabledTrueAndRunningTrue();
+        List<Bot> activeBots = botRepository.findByEnabledTrueAndRunningTrueWithUser();
         if (activeBots.isEmpty()) {
             logger.debug("No active bots found in DB. Strategy idle.");
             return;
