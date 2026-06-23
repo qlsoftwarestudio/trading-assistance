@@ -131,6 +131,18 @@ trading:
     rsi-overbought-uptrend: 85
     short-min-volume-uptrend: 2.0
     short-min-conditions-uptrend: 2
+    # Stochastic + Bollinger Bands confirmation filter
+    use-stoch-bb-filter: false       # Set to true to enable. OFF by default to avoid breaking existing behavior
+    stoch-period: 14                 # Stochastic lookback period (standard: 14)
+    stoch-smooth-k: 3                # %K smoothing (standard: 3)
+    stoch-smooth-d: 3                # %D smoothing (standard: 3)
+    stoch-oversold: 20               # %K threshold for LONG confirmation
+    stoch-overbought: 80             # %K threshold for SHORT confirmation
+    bb-period: 20                    # Bollinger Bands SMA period (standard: 20)
+    bb-std-dev: 2.0                  # Standard deviations (standard: 2.0)
+    bb-proximity-pct: 1.0            # Price must be within this % of BB band to qualify
+    use-bb-based-sl: false           # Tighten SL to BB band when enabled
+    bb-sl-buffer-pct: 0.1            # Buffer below BB lower (for LONG SL) as % of band price
 
   # Trading Session Filter (skip low-volume sessions) — disabled by default
   session-filter:

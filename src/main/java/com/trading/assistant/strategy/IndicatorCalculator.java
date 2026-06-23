@@ -647,4 +647,96 @@ public class IndicatorCalculator {
 
         return volume.doubleValue() * deltaRatio;
     }
+
+    /**
+     * Calculate Stochastic Oscillator (%K and %D).
+     *
+     * Raw %K = (close - lowest_low_period) / (highest_high_period - lowest_low_period) × 100
+     * Smoothed %K = SMA(raw %K, smoothK)
+     * %D = SMA(smoothed %K, smoothD)
+     *
+     * @return double[] { smoothed %K, %D } — both in range [0, 100]
+     */
+    public double[] calculateStochastic(List<Kline> klines, int period, int smoothK, int smoothD) {
+        int minRequired = period + smoothK + smoothD - 2;
+        if (klines == null || klines.size() < minRequired) {
+            return new double[]{50.0, 50.0};
+        }
+        int size = klines.size();
+
+        // Compute raw %K for each candle from index (period-1) onwards
+        List<Double> rawK = new ArrayList<>();
+        for (int i = period - 1; i < size; i++) {
+            double highest = Double.MIN_VALUE;
+            double lowest  = Double.MAX_VALUE;
+            for (int j = i - period + 1; j <= i; j++) {
+                double h = klines.get(j).getHigh().doubleValue();
+                double l = klines.get(j).getLow().doubleValue();
+                if (h > highest) highest = h;
+                if (l < lowest)  lowest  = l;
+            }
+            double c = klines.get(i).getClose().doubleValue();
+            double k = (highest == lowest) ? 50.0 : ((c - lowest) / (highest - lowest)) * 100.0;
+            rawK.add(k);
+        }
+
+        // Smooth %K with SMA(smoothK)
+        List<Double> smoothedK = new ArrayList<>();
+        for (int i = smoothK - 1; i < rawK.size(); i++) {
+            double sum = 0;
+            for (int j = i - smoothK + 1; j <= i; j++) sum += rawK.get(j);
+            smoothedK.add(sum / smoothK);
+        }
+
+        if (smoothedK.isEmpty()) return new double[]{50.0, 50.0};
+
+        // %D = SMA(smoothedK, smoothD)
+        double d;
+        if (smoothedK.size() >= smoothD) {
+            double sum = 0;
+            for (int i = smoothedK.size() - smoothD; i < smoothedK.size(); i++) sum += smoothedK.get(i);
+            d = sum / smoothD;
+        } else {
+            d = smoothedK.get(smoothedK.size() - 1);
+        }
+
+        return new double[]{smoothedK.get(smoothedK.size() - 1), d};
+    }
+
+    /**
+     * Calculate Bollinger Bands.
+     *
+     * mid   = SMA(close, period)
+     * upper = mid + stdDevMultiplier × σ(close, period)
+     * lower = mid − stdDevMultiplier × σ(close, period)
+     *
+     * @return double[] { upper, mid, lower }
+     */
+    public double[] calculateBollingerBands(List<Kline> klines, int period, double stdDevMultiplier) {
+        if (klines == null || klines.size() < period) {
+            return new double[]{0.0, 0.0, 0.0};
+        }
+        int size = klines.size();
+        double sum = 0;
+        for (int i = size - period; i < size; i++) sum += klines.get(i).getClose().doubleValue();
+        double mid = sum / period;
+
+        double variance = 0;
+        for (int i = size - period; i < size; i++) {
+            double diff = klines.get(i).getClose().doubleValue() - mid;
+            variance += diff * diff;
+        }
+        double stdDev = Math.sqrt(variance / period);
+
+        return new double[]{mid + stdDevMultiplier * stdDev, mid, mid - stdDevMultiplier * stdDev};
+    }
+
+    /**
+     * Returns how far the price is from a BB band, as a percentage of the band value.
+     * Positive = price is above the band; negative = price is below.
+     */
+    public double getBBDistancePct(double price, double band) {
+        if (band <= 0) return 999.0;
+        return (price - band) / band * 100.0;
+    }
 }

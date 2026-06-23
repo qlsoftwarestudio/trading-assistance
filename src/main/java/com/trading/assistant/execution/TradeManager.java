@@ -159,6 +159,12 @@ public class TradeManager {
     @Value("${trading.strategy.momentum-exit-min-hold-minutes:15}")
     private int momentumExitMinHoldMinutes;
 
+    @Value("${trading.strategy.use-bb-based-sl:false}")
+    private boolean useBbBasedSl;
+
+    @Value("${trading.strategy.bb-sl-buffer-pct:0.1}")
+    private double bbSlBufferPct;
+
     private final Map<String, LocalDateTime> lastSlTime = new ConcurrentHashMap<>();
     private final Map<Long, BigDecimal> tradePeakPrices = new ConcurrentHashMap<>();
     private final Map<Long, Double> tradeEntryMomentum = new ConcurrentHashMap<>();
@@ -578,6 +584,31 @@ public class TradeManager {
             } else {
                 stopLoss = calculateFixedStopLoss(currentPrice, isLong);
                 takeProfit = calculateFixedTakeProfit(currentPrice, isLong);
+            }
+
+            // BB-based SL: tighten SL to the BB lower/upper band if it's closer to price than ATR SL
+            if (useBbBasedSl && signal.getBbLower() != null && signal.getBbUpper() != null) {
+                if (isLong) {
+                    BigDecimal bbSl = signal.getBbLower()
+                            .multiply(BigDecimal.valueOf(1.0 - bbSlBufferPct / 100.0))
+                            .setScale(8, RoundingMode.HALF_UP);
+                    if (bbSl.compareTo(stopLoss) > 0) {
+                        logger.info("📊 BB-based SL tightened for LONG: {} → {} (BB lower: {})", stopLoss, bbSl, signal.getBbLower());
+                        stopLoss = bbSl;
+                        BigDecimal risk = currentPrice.subtract(stopLoss);
+                        takeProfit = currentPrice.add(risk.multiply(BigDecimal.valueOf(2.0))).setScale(8, RoundingMode.HALF_UP);
+                    }
+                } else {
+                    BigDecimal bbSl = signal.getBbUpper()
+                            .multiply(BigDecimal.valueOf(1.0 + bbSlBufferPct / 100.0))
+                            .setScale(8, RoundingMode.HALF_UP);
+                    if (bbSl.compareTo(stopLoss) < 0) {
+                        logger.info("📊 BB-based SL tightened for SHORT: {} → {} (BB upper: {})", stopLoss, bbSl, signal.getBbUpper());
+                        stopLoss = bbSl;
+                        BigDecimal risk = stopLoss.subtract(currentPrice);
+                        takeProfit = currentPrice.subtract(risk.multiply(BigDecimal.valueOf(2.0))).setScale(8, RoundingMode.HALF_UP);
+                    }
+                }
             }
 
             logger.info("Executing {} entry - Price: {}, Quantity: {}, SL: {}, TP: {}",

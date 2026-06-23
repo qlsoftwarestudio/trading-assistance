@@ -81,6 +81,21 @@ public class Signal {
     @Transient
     private String projectionNote;
 
+    @Transient
+    private BigDecimal bbUpper;
+
+    @Transient
+    private BigDecimal bbMid;
+
+    @Transient
+    private BigDecimal bbLower;
+
+    @Transient
+    private Double stochK5m;
+
+    @Transient
+    private Double stochD5m;
+
     @PrePersist
     protected void onCreate() {
         generatedAt = LocalDateTime.now();
@@ -188,6 +203,21 @@ public class Signal {
 
     public String getProjectionNote() { return projectionNote; }
     public void setProjectionNote(String projectionNote) { this.projectionNote = projectionNote; }
+
+    public BigDecimal getBbUpper() { return bbUpper; }
+    public void setBbUpper(BigDecimal bbUpper) { this.bbUpper = bbUpper; }
+
+    public BigDecimal getBbMid() { return bbMid; }
+    public void setBbMid(BigDecimal bbMid) { this.bbMid = bbMid; }
+
+    public BigDecimal getBbLower() { return bbLower; }
+    public void setBbLower(BigDecimal bbLower) { this.bbLower = bbLower; }
+
+    public Double getStochK5m() { return stochK5m; }
+    public void setStochK5m(Double stochK5m) { this.stochK5m = stochK5m; }
+
+    public Double getStochD5m() { return stochD5m; }
+    public void setStochD5m(Double stochD5m) { this.stochD5m = stochD5m; }
 
     @Override
     public String toString() {

@@ -160,6 +160,33 @@ public class HypeStrategy {
     @Value("${trading.strategy.anti-crash-slope-threshold:0.03}")
     private double antiCrashSlopeThreshold;
 
+    @Value("${trading.strategy.use-stoch-bb-filter:false}")
+    private boolean useStochBbFilter;
+
+    @Value("${trading.strategy.stoch-period:14}")
+    private int stochPeriod;
+
+    @Value("${trading.strategy.stoch-smooth-k:3}")
+    private int stochSmoothK;
+
+    @Value("${trading.strategy.stoch-smooth-d:3}")
+    private int stochSmoothD;
+
+    @Value("${trading.strategy.stoch-oversold:20}")
+    private double stochOversoldThreshold;
+
+    @Value("${trading.strategy.stoch-overbought:80}")
+    private double stochOverboughtThreshold;
+
+    @Value("${trading.strategy.bb-period:20}")
+    private int bbPeriod;
+
+    @Value("${trading.strategy.bb-std-dev:2.0}")
+    private double bbStdDev;
+
+    @Value("${trading.strategy.bb-proximity-pct:1.0}")
+    private double bbProximityPct;
+
     @Value("${trading.strategy.rsi-overbought-uptrend:85}")
     private double rsiOverboughtUptrend;
 
@@ -295,8 +322,26 @@ public class HypeStrategy {
                         pressure);
             }
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, sym, userId);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, sym, userId);
+            // Stochastic Oscillator + Bollinger Bands (5m current TF + 15m filter)
+            double[] stoch5m = indicatorCalculator.calculateStochastic(klines, stochPeriod, stochSmoothK, stochSmoothD);
+            double[] bb5m    = indicatorCalculator.calculateBollingerBands(klines, bbPeriod, bbStdDev);
+            double stochK5m = stoch5m[0], stochD5m = stoch5m[1];
+            double bbUpper = bb5m[0], bbMid = bb5m[1], bbLower = bb5m[2];
+
+            int klines15mCount = stochPeriod + stochSmoothK + stochSmoothD + 5;
+            List<Kline> klines15m = binanceClient.getKlines(sym, "15m", klines15mCount);
+            double[] stoch15m = indicatorCalculator.calculateStochastic(klines15m, stochPeriod, stochSmoothK, stochSmoothD);
+            double stochK15m = stoch15m[0];
+
+            if (useStochBbFilter) {
+                logger.info("📈 Stoch+BB | %K5m={} %D5m={} %K15m={} | BB upper={} mid={} lower={}",
+                        String.format("%.1f", stochK5m), String.format("%.1f", stochD5m),
+                        String.format("%.1f", stochK15m),
+                        String.format("%.4f", bbUpper), String.format("%.4f", bbMid), String.format("%.4f", bbLower));
+            }
+
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId);
 
             // Update trailing stops and time exits for open trades (data already fetched above)
             tradeManager.updateTrailingAndTimeExit(sym, userId, currentPrice, currentKline, projection);
@@ -306,7 +351,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, String sym, Long userId) {
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean extremeOversold = rsi < emaExtremeRsiThreshold;
@@ -391,6 +436,24 @@ public class HypeStrategy {
                 return;
             }
 
+            // Stoch+BB confirmation filter (optional, config-gated)
+            if (useStochBbFilter) {
+                boolean stochOversold5m = stochK5m < stochOversoldThreshold;
+                double price = currentPrice.doubleValue();
+                double lowerBandGap = indicatorCalculator.getBBDistancePct(price, bbLower); // >0 means price above lower band
+                boolean nearLowerBand = lowerBandGap <= bbProximityPct && lowerBandGap >= -1.0; // within bbProximityPct% above or below lower band
+                boolean stoch15mOk = stochK15m < stochOverboughtThreshold; // 15m not overbought
+                if (!(stochOversold5m && nearLowerBand && stoch15mOk)) {
+                    logger.info("❌ LONG rejected by Stoch+BB: stochK5m={} (need <{}) lowerBandGap={}% (need <{}%) stochK15m={} (need <{})",
+                            String.format("%.1f", stochK5m), stochOversoldThreshold,
+                            String.format("%.2f", lowerBandGap), bbProximityPct,
+                            String.format("%.1f", stochK15m), stochOverboughtThreshold);
+                    return;
+                }
+                logger.info("✅ Stoch+BB LONG confirmed: stochK5m={} lowerBandGap={}% stochK15m={}",
+                        String.format("%.1f", stochK5m), String.format("%.2f", lowerBandGap), String.format("%.1f", stochK15m));
+            }
+
             // Auto-adjust: skip if this setup has been disabled due to poor performance
             if (!autoAdjustService.isSetupEnabled("LONG", entryType)) {
                 logger.info("🚫 LONG {} entry blocked by auto-adjust (poor recent performance).", entryType);
@@ -415,6 +478,13 @@ public class HypeStrategy {
             );
             signal.setSetupType(entryType);
             signal.setUserId(userId);
+            if (bbLower > 0) {
+                signal.setBbLower(BigDecimal.valueOf(bbLower).setScale(8, java.math.RoundingMode.HALF_UP));
+                signal.setBbMid(BigDecimal.valueOf(bbMid).setScale(8, java.math.RoundingMode.HALF_UP));
+                signal.setBbUpper(BigDecimal.valueOf(bbUpper).setScale(8, java.math.RoundingMode.HALF_UP));
+            }
+            signal.setStochK5m(stochK5m);
+            signal.setStochD5m(stochD5m);
 
             // Regression channel filter: for mean-reversion LONG, price should be in lower half of channel
             // Bypassed when extreme oversold or volume spike override is active (capitulation event)
@@ -476,7 +546,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, String sym, Long userId) {
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId) {
         boolean rsiReversingDown = rsi < previousRsi;
 
         // Dynamic RSI threshold: higher bar when shorting into strong uptrend
@@ -601,6 +671,24 @@ public class HypeStrategy {
                 return;
             }
 
+            // Stoch+BB confirmation filter (optional, config-gated)
+            if (useStochBbFilter) {
+                boolean stochOverbought5m = stochK5m > stochOverboughtThreshold;
+                double price = currentPrice.doubleValue();
+                double upperBandGap = indicatorCalculator.getBBDistancePct(price, bbUpper); // <0 means price below upper band
+                boolean nearUpperBand = upperBandGap >= -bbProximityPct && upperBandGap <= 1.0; // within bbProximityPct% below or above upper band
+                boolean stoch15mOk = stochK15m > stochOversoldThreshold; // 15m not oversold
+                if (!(stochOverbought5m && nearUpperBand && stoch15mOk)) {
+                    logger.info("❌ SHORT rejected by Stoch+BB: stochK5m={} (need >{}) upperBandGap={}% (need >-{}%) stochK15m={} (need >{})",
+                            String.format("%.1f", stochK5m), stochOverboughtThreshold,
+                            String.format("%.2f", upperBandGap), bbProximityPct,
+                            String.format("%.1f", stochK15m), stochOversoldThreshold);
+                    return;
+                }
+                logger.info("✅ Stoch+BB SHORT confirmed: stochK5m={} upperBandGap={}% stochK15m={}",
+                        String.format("%.1f", stochK5m), String.format("%.2f", upperBandGap), String.format("%.1f", stochK15m));
+            }
+
             // Auto-adjust: skip if this setup has been disabled due to poor performance
             if (!autoAdjustService.isSetupEnabled("SHORT", entryType)) {
                 logger.info("🚫 SHORT {} entry blocked by auto-adjust (poor recent performance).", entryType);
@@ -625,6 +713,13 @@ public class HypeStrategy {
             );
             signal.setSetupType(entryType);
             signal.setUserId(userId);
+            if (bbUpper > 0) {
+                signal.setBbLower(BigDecimal.valueOf(bbLower).setScale(8, java.math.RoundingMode.HALF_UP));
+                signal.setBbMid(BigDecimal.valueOf(bbMid).setScale(8, java.math.RoundingMode.HALF_UP));
+                signal.setBbUpper(BigDecimal.valueOf(bbUpper).setScale(8, java.math.RoundingMode.HALF_UP));
+            }
+            signal.setStochK5m(stochK5m);
+            signal.setStochD5m(stochD5m);
 
             // Regression channel filter: for mean-reversion SHORT, price should be in upper half of channel
             // Bypassed when extreme overbought or volume spike override is active (blow-off top event)
