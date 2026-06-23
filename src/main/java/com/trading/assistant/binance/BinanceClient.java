@@ -327,6 +327,56 @@ public class BinanceClient {
         return placeOrder("BUY", "SHORT", quantity, true);
     }
 
+    /**
+     * Place a market order for a specific symbol (multi-symbol support).
+     * Uses a default quantity precision of 2 for unknown symbols.
+     */
+    public String placeOrderForSymbol(String sym, String side, String positionSide, BigDecimal quantity, boolean reduceOnly) {
+        if (!configured) {
+            logger.info("DEMO MODE: Would place {} {} order for {} {}", side, sym, quantity, sym);
+            return "DEMO_ORDER_" + System.currentTimeMillis();
+        }
+        try {
+            int symPrecision = sym.equals(this.symbol) ? this.quantityPrecision : 2;
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", sym);
+            params.put("side", side);
+            if (hedgeMode) {
+                params.put("positionSide", positionSide);
+            }
+            params.put("type", "MARKET");
+            params.put("quantity", quantity.setScale(symPrecision, RoundingMode.DOWN).toPlainString());
+            if (reduceOnly) {
+                params.put("reduceOnly", "true");
+            }
+            String query = buildSignedQuery(params);
+            String response = webClient.post()
+                    .uri("/fapi/v1/order?" + query)
+                    .header("X-MBX-APIKEY", apiKey)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body ->
+                            logger.error("Binance 4xx error ({}): {}", clientResponse.statusCode(), body)
+                        ).then(clientResponse.createException())
+                    )
+                    .bodyToMono(String.class)
+                    .block();
+            logger.info("[Bot] Order placed ({}): {}", sym, response);
+            return extractOrderId(response);
+        } catch (Exception e) {
+            logger.error("Error placing order for {}: {}", sym, e.getMessage());
+            return null;
+        }
+    }
+
+    public String placeSellOrderForSymbol(String sym, BigDecimal quantity) {
+        return placeOrderForSymbol(sym, "SELL", "LONG", quantity, true);
+    }
+
+    public String placeShortBuyOrderForSymbol(String sym, BigDecimal quantity) {
+        return placeOrderForSymbol(sym, "BUY", "SHORT", quantity, true);
+    }
+
     // ============== USER DATA STREAM ==============
 
     public String createListenKey() {

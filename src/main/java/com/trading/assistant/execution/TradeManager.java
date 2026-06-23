@@ -535,8 +535,9 @@ public class TradeManager {
             BigDecimal takeProfit;
             boolean isLong = "LONG".equals(action);
 
+            String tradeSymbol = signal.getSymbol() != null ? signal.getSymbol() : symbol;
             if (useAtrStop) {
-                List<Kline> klines = binanceClient.getKlines(symbol, "5m", atrPeriod + 5);
+                List<Kline> klines = binanceClient.getKlines(tradeSymbol, "5m", atrPeriod + 5);
                 double atr = indicatorCalculator.calculateATR(klines, atrPeriod);
                 if (atr > 0) {
                     stopLoss = indicatorCalculator.atrBasedStopLoss(currentPrice, atr, (int) Math.round(atrMultiplier), isLong)
@@ -587,7 +588,7 @@ public class TradeManager {
 
             if (orderId != null) {
                 Trade trade = new Trade(
-                        symbol,
+                        tradeSymbol,
                         action,
                         currentPrice,
                         quantity,
@@ -618,7 +619,7 @@ public class TradeManager {
                 jed.inBuyZone = signal.getInBuyZone();
                 jed.inSellZone = signal.getInSellZone();
                 if (useAtrStop) {
-                    List<Kline> klines = binanceClient.getKlines(symbol, "5m", atrPeriod + 5);
+                    List<Kline> klines = binanceClient.getKlines(tradeSymbol, "5m", atrPeriod + 5);
                     double atr = indicatorCalculator.calculateATR(klines, atrPeriod);
                     if (atr > 0) {
                         jed.atrAtEntry = BigDecimal.valueOf(atr);
@@ -1156,10 +1157,11 @@ public class TradeManager {
             }
 
             String orderId;
+            String tradeSymbol = trade.getSymbol() != null ? trade.getSymbol() : symbol;
             if ("SHORT".equals(trade.getAction())) {
-                orderId = binanceClient.placeShortBuyOrder(trade.getQuantity());
+                orderId = binanceClient.placeShortBuyOrderForSymbol(tradeSymbol, trade.getQuantity());
             } else {
-                orderId = binanceClient.placeSellOrder(trade.getQuantity());
+                orderId = binanceClient.placeSellOrderForSymbol(tradeSymbol, trade.getQuantity());
             }
 
             if (orderId != null) {
