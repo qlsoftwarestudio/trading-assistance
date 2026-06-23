@@ -83,6 +83,11 @@ public class TradeManager {
     @Value("${trading.strategy.symbol:HYPEUSDT}")
     private String symbol;
 
+    @Value("${trading.strategy.symbol-risk-config:}")
+    private String symbolRiskConfig;
+
+    private final Map<String, SymbolRisk> symbolRiskMap = new ConcurrentHashMap<>();
+
     @Value("${trading.strategy.leverage:5}")
     private int leverage;
 
@@ -173,6 +178,37 @@ public class TradeManager {
     private final Map<Long, Double> tradeEntryMomentum = new ConcurrentHashMap<>();
     private final Map<Long, JournalEntryData> tradeJournalData = new ConcurrentHashMap<>();
 
+    @jakarta.annotation.PostConstruct
+    public void initSymbolRiskConfig() {
+        if (symbolRiskConfig == null || symbolRiskConfig.isBlank()) return;
+        for (String entry : symbolRiskConfig.split(",")) {
+            String[] parts = entry.trim().split(":");
+            if (parts.length == 3) {
+                try {
+                    String sym = parts[0].trim();
+                    double sl = Double.parseDouble(parts[1].trim());
+                    double tp = Double.parseDouble(parts[2].trim());
+                    symbolRiskMap.put(sym, new SymbolRisk(sl, tp));
+                    logger.info("Symbol risk config loaded: {} -> SL {}%, TP {}%", sym, sl, tp);
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid symbol-risk-config entry: {}", entry);
+                }
+            }
+        }
+    }
+
+    /**
+     * Per-symbol SL/TP override.
+     */
+    private static class SymbolRisk {
+        final double stopLossPct;
+        final double takeProfitPct;
+        SymbolRisk(double stopLossPct, double takeProfitPct) {
+            this.stopLossPct = stopLossPct;
+            this.takeProfitPct = takeProfitPct;
+        }
+    }
+
     /**
      * Simple data holder for journal entry conditions captured at trade entry.
      */
@@ -221,19 +257,29 @@ public class TradeManager {
         return false;
     }
 
-    private BigDecimal calculateFixedStopLoss(BigDecimal currentPrice, boolean isLong) {
+    private BigDecimal calculateFixedStopLoss(BigDecimal currentPrice, boolean isLong, String tradeSymbol) {
+        double slPct = stopLossPct;
+        SymbolRisk override = tradeSymbol != null ? symbolRiskMap.get(tradeSymbol) : null;
+        if (override != null) {
+            slPct = override.stopLossPct;
+        }
         if (isLong) {
-            return currentPrice.multiply(BigDecimal.valueOf(1 - stopLossPct / 100)).setScale(8, RoundingMode.HALF_UP);
+            return currentPrice.multiply(BigDecimal.valueOf(1 - slPct / 100)).setScale(8, RoundingMode.HALF_UP);
         } else {
-            return currentPrice.multiply(BigDecimal.valueOf(1 + stopLossPct / 100)).setScale(8, RoundingMode.HALF_UP);
+            return currentPrice.multiply(BigDecimal.valueOf(1 + slPct / 100)).setScale(8, RoundingMode.HALF_UP);
         }
     }
 
-    private BigDecimal calculateFixedTakeProfit(BigDecimal currentPrice, boolean isLong) {
+    private BigDecimal calculateFixedTakeProfit(BigDecimal currentPrice, boolean isLong, String tradeSymbol) {
+        double tpPct = takeProfitPct;
+        SymbolRisk override = tradeSymbol != null ? symbolRiskMap.get(tradeSymbol) : null;
+        if (override != null) {
+            tpPct = override.takeProfitPct;
+        }
         if (isLong) {
-            return currentPrice.multiply(BigDecimal.valueOf(1 + takeProfitPct / 100)).setScale(8, RoundingMode.HALF_UP);
+            return currentPrice.multiply(BigDecimal.valueOf(1 + tpPct / 100)).setScale(8, RoundingMode.HALF_UP);
         } else {
-            return currentPrice.multiply(BigDecimal.valueOf(1 - takeProfitPct / 100)).setScale(8, RoundingMode.HALF_UP);
+            return currentPrice.multiply(BigDecimal.valueOf(1 - tpPct / 100)).setScale(8, RoundingMode.HALF_UP);
         }
     }
 
@@ -576,8 +622,8 @@ public class TradeManager {
                                 String.format("%.2f", slDistancePct),
                                 String.format("%.1f", maxAtrSlPct),
                                 String.format("%.4f", atr));
-                        stopLoss = calculateFixedStopLoss(currentPrice, isLong);
-                        takeProfit = calculateFixedTakeProfit(currentPrice, isLong);
+                        stopLoss = calculateFixedStopLoss(currentPrice, isLong, tradeSymbol);
+                        takeProfit = calculateFixedTakeProfit(currentPrice, isLong, tradeSymbol);
                     } else {
                         // TP = 2x risk (reward/risk = 2:1)
                         BigDecimal risk = isLong ? currentPrice.subtract(stopLoss) : stopLoss.subtract(currentPrice);
@@ -597,12 +643,12 @@ public class TradeManager {
                     }
                 } else {
                     logger.warn("ATR calculation failed, falling back to fixed pct stop");
-                    stopLoss = calculateFixedStopLoss(currentPrice, isLong);
-                    takeProfit = calculateFixedTakeProfit(currentPrice, isLong);
+                    stopLoss = calculateFixedStopLoss(currentPrice, isLong, tradeSymbol);
+                    takeProfit = calculateFixedTakeProfit(currentPrice, isLong, tradeSymbol);
                 }
             } else {
-                stopLoss = calculateFixedStopLoss(currentPrice, isLong);
-                takeProfit = calculateFixedTakeProfit(currentPrice, isLong);
+                stopLoss = calculateFixedStopLoss(currentPrice, isLong, tradeSymbol);
+                takeProfit = calculateFixedTakeProfit(currentPrice, isLong, tradeSymbol);
             }
 
             // BB-based SL: tighten SL to the BB lower/upper band if it's closer to price than ATR SL

@@ -68,6 +68,9 @@ public class AdminService {
     @Value("${trading.strategy.use-atr-stop:false}")
     private boolean useAtrStop;
 
+    @Value("${trading.strategy.symbol-risk-config:}")
+    private String symbolRiskConfig;
+
     @Value("${trading.strategy.atr-period:10}")
     private int atrPeriod;
 
@@ -199,6 +202,7 @@ public class AdminService {
 
         config.put("stopLossPct", stopLossPct);
         config.put("takeProfitPct", takeProfitPct);
+        config.put("symbolRiskConfig", symbolRiskConfig);
         config.put("positionSizePct", positionSizePct);
         config.put("leverage", leverage);
 

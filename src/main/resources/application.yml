@@ -70,7 +70,8 @@ trading:
     max-hold-minutes: 45
     require-rsi-reversal: true
     # Risk Management
-    use-atr-stop: true
+    use-atr-stop: false
+    symbol-risk-config: "HYPEUSDT:0.6:1.2,SOLUSDT:1.0:2.0"
     trailing-stop-pct: 0.6
     trailing-activation-pct: 0.4
     breakeven-activation-pct: 0.25
