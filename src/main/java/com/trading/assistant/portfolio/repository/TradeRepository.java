@@ -101,4 +101,7 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
 
     @Query("SELECT COALESCE(SUM(ABS(t.pnl)), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl < 0 AND t.userId = :userId")
     BigDecimal calculateGrossLossByUserId(@Param("userId") Long userId);
+
+    @Query("SELECT COALESCE(SUM(t.investedAmount), 0) FROM Trade t WHERE t.status = 'OPEN' AND t.userId = :userId")
+    BigDecimal calculateTotalInvestedOpenByUserId(@Param("userId") Long userId);
 }

@@ -5,6 +5,7 @@ import com.trading.assistant.strategy.model.LinearRegressionChannel;
 import com.trading.assistant.strategy.model.PriceProjection;
 import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.execution.TradeManager;
+import com.trading.assistant.notification.TelegramBot;
 import com.trading.assistant.strategy.model.MarketContext;
 import com.trading.assistant.strategy.model.Signal;
 import com.trading.assistant.strategy.repository.SignalRepository;
@@ -52,6 +53,9 @@ public class HypeStrategy {
 
     @Autowired
     private BotRepository botRepository;
+
+    @Autowired
+    private TelegramBot telegramBot;
 
     @Value("${trading.strategy.enabled:true}")
     private boolean strategyEnabled;
@@ -348,6 +352,8 @@ public class HypeStrategy {
 
         } catch (Exception e) {
             logger.error("Error executing strategy: {}", e.getMessage(), e);
+            telegramBot.sendAlert("⚠️ Error crítico en estrategia",
+                    "Error en HypeStrategy: " + e.getMessage() + "\n" + java.util.Arrays.toString(e.getStackTrace()).substring(0, Math.min(500, java.util.Arrays.toString(e.getStackTrace()).length())));
         }
     }
 
@@ -825,6 +831,8 @@ public class HypeStrategy {
             }
         } catch (Exception e) {
             logger.error("Error during auto-adjustment: {}", e.getMessage(), e);
+            telegramBot.sendAlert("⚠️ Error en auto-adjust",
+                    "Auto-adjust falló: " + e.getMessage());
         }
     }
 

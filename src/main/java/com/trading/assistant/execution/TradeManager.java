@@ -124,6 +124,9 @@ public class TradeManager {
     @Value("${trading.risk.max-daily-loss-pct:5.0}")
     private double maxDailyLossPct;
 
+    @Value("${app.risk.max-capital-per-user-usd:500.0}")
+    private double maxCapitalPerUserUsd;
+
     @Value("${trading.risk.min-notional:5.0}")
     private double minNotional;
 
@@ -504,6 +507,22 @@ public class TradeManager {
             if (openCount >= maxConcurrentTrades) {
                 logger.info("Max concurrent trades reached for userId={} ({}/{}). Skipping {} entry.",
                         userId, openCount, maxConcurrentTrades, action);
+                return;
+            }
+
+            // Check total exposed capital limit per user
+            BigDecimal totalExposed = tradeRepository.calculateTotalInvestedOpenByUserId(userId);
+            if (totalExposed == null) totalExposed = BigDecimal.ZERO;
+            BigDecimal maxCapital = BigDecimal.valueOf(maxCapitalPerUserUsd);
+            if (maxCapital.compareTo(BigDecimal.ZERO) > 0 &&
+                    totalExposed.compareTo(maxCapital) >= 0) {
+                logger.warn("Capital máximo alcanzado para userId={}. Total expuesto: ${} / ${}. Trade bloqueado.",
+                        userId, totalExposed.setScale(2, RoundingMode.HALF_UP),
+                        maxCapital.setScale(2, RoundingMode.HALF_UP));
+                telegramBot.sendAlert("Capital límite alcanzado",
+                        String.format("User %d: total expuesto $%s / $%s. Trade %s bloqueado.",
+                                userId, totalExposed.setScale(2, RoundingMode.HALF_UP),
+                                maxCapital.setScale(2, RoundingMode.HALF_UP), action));
                 return;
             }
 
