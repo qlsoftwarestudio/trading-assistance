@@ -23,6 +23,9 @@ public class AdminService {
     private SignalRepository signalRepository;
 
     // Strategy config values (injected from application.yml / env vars)
+    @Value("${trading.strategy.symbols:HYPEUSDT}")
+    private String symbols;
+
     @Value("${trading.strategy.symbol:HYPEUSDT}")
     private String symbol;
 
@@ -113,6 +116,63 @@ public class AdminService {
     @Value("${trading.performance.auto-adjust:false}")
     private boolean autoAdjust;
 
+    @Value("${trading.strategy.trailing-activation-pct:0.4}")
+    private double trailingActivationPct;
+
+    @Value("${trading.strategy.breakeven-activation-pct:0.25}")
+    private double breakevenActivationPct;
+
+    @Value("${trading.strategy.use-regression-filter:true}")
+    private boolean useRegressionFilter;
+
+    @Value("${trading.strategy.regression-lookback:50}")
+    private int regressionLookback;
+
+    @Value("${trading.strategy.use-delta-volume-filter:true}")
+    private boolean useDeltaVolumeFilter;
+
+    @Value("${trading.strategy.delta-volume-threshold:0.20}")
+    private double deltaVolumeThreshold;
+
+    @Value("${trading.strategy.use-stoch-bb-filter:false}")
+    private boolean useStochBbFilter;
+
+    @Value("${trading.strategy.stoch-period:14}")
+    private int stochPeriod;
+
+    @Value("${trading.strategy.stoch-oversold:20}")
+    private double stochOversold;
+
+    @Value("${trading.strategy.stoch-overbought:80}")
+    private double stochOverbought;
+
+    @Value("${trading.strategy.bb-period:20}")
+    private int bbPeriod;
+
+    @Value("${trading.strategy.bb-std-dev:2.0}")
+    private double bbStdDev;
+
+    @Value("${trading.strategy.bb-proximity-pct:1.0}")
+    private double bbProximityPct;
+
+    @Value("${trading.strategy.use-bb-based-sl:false}")
+    private boolean useBbBasedSl;
+
+    @Value("${trading.strategy.auto-adjust-enabled:true}")
+    private boolean autoAdjustEnabled;
+
+    @Value("${trading.strategy.auto-adjust-min-trades:20}")
+    private int autoAdjustMinTrades;
+
+    @Value("${trading.strategy.auto-adjust-win-rate-threshold:0.30}")
+    private double autoAdjustWinRateThreshold;
+
+    @Value("${trading.risk.max-daily-loss-pct:5.0}")
+    private double maxDailyLossPct;
+
+    @Value("${trading.strategy.rsi-overbought-uptrend:85}")
+    private double rsiOverboughtUptrend;
+
     @Value("${telegram.bot.enabled:false}")
     private boolean telegramEnabled;
 
@@ -161,6 +221,27 @@ public class AdminService {
         config.put("minVolumeRatio", minVolumeRatio);
 
         config.put("autoAdjust", autoAdjust);
+
+        config.put("symbols", symbols);
+        config.put("trailingActivationPct", trailingActivationPct);
+        config.put("breakevenActivationPct", breakevenActivationPct);
+        config.put("useRegressionFilter", useRegressionFilter);
+        config.put("regressionLookback", regressionLookback);
+        config.put("useDeltaVolumeFilter", useDeltaVolumeFilter);
+        config.put("deltaVolumeThreshold", deltaVolumeThreshold);
+        config.put("useStochBbFilter", useStochBbFilter);
+        config.put("stochPeriod", stochPeriod);
+        config.put("stochOversold", stochOversold);
+        config.put("stochOverbought", stochOverbought);
+        config.put("bbPeriod", bbPeriod);
+        config.put("bbStdDev", bbStdDev);
+        config.put("bbProximityPct", bbProximityPct);
+        config.put("useBbBasedSl", useBbBasedSl);
+        config.put("autoAdjustEnabled", autoAdjustEnabled);
+        config.put("autoAdjustMinTrades", autoAdjustMinTrades);
+        config.put("autoAdjustWinRateThreshold", autoAdjustWinRateThreshold);
+        config.put("maxDailyLossPct", maxDailyLossPct);
+        config.put("rsiOverboughtUptrend", rsiOverboughtUptrend);
 
         config.put("telegramEnabled", telegramEnabled);
         config.put("binanceTestnet", binanceTestnet);

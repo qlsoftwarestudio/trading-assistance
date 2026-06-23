@@ -13,15 +13,22 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import org.springframework.beans.factory.annotation.Value;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 @Service
 public class PortfolioService {
+
+    @Value("${trading.strategy.symbols:HYPEUSDT}")
+    private String configuredSymbols;
 
     private static final Logger logger = LoggerFactory.getLogger(PortfolioService.class);
 
@@ -197,6 +204,15 @@ public class PortfolioService {
                 ? binanceClient.getPrice(symbol)
                 : binanceClient.getCurrentPrice();
         summary.put("currentPrice", currentPrice);
+
+        // Prices for all configured symbols (best-effort, silently skip unavailable)
+        Map<String, BigDecimal> prices = new LinkedHashMap<>();
+        for (String sym : configuredSymbols.split(",")) {
+            sym = sym.trim();
+            if (sym.isEmpty()) continue;
+            try { prices.put(sym, binanceClient.getPrice(sym)); } catch (Exception ignored) {}
+        }
+        summary.put("prices", prices);
 
         return summary;
     }
