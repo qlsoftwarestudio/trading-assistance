@@ -897,24 +897,26 @@ public class TradeManager {
             // Check Stop Loss
             if (isLong) {
                 if (currentPrice.compareTo(trade.getStopLoss()) <= 0) {
-                    // If SL was raised by trailing stop and we're above entry, it's a profitable trailing exit
                     boolean slMoved = trade.getOriginalStopLoss() != null && trade.getStopLoss().compareTo(trade.getOriginalStopLoss()) > 0;
                     boolean profitable = currentPrice.compareTo(trade.getEntryPrice()) > 0;
                     String reason = (slMoved && profitable) ? "TRAILING_STOP" : "STOP_LOSS";
-                    logger.info("⛔ Local SL hit for LONG Trade {}. Price {} <= SL {} (original SL: {}, reason: {})",
+                    // Use stored SL as exit price: Binance algo already fired at that price.
+                    // currentPrice may be worse due to polling delay in high-volatility markets.
+                    BigDecimal exitPrice = trade.getStopLoss();
+                    logger.info("⛔ Local SL hit for LONG Trade {}. Poll price {} <= SL {} → exiting at SL price (original SL: {}, reason: {})",
                             trade.getId(), currentPrice, trade.getStopLoss(), trade.getOriginalStopLoss(), reason);
-                    closeTrade(trade, currentPrice, reason);
+                    closeTrade(trade, exitPrice, reason);
                     return true;
                 }
             } else {
                 if (currentPrice.compareTo(trade.getStopLoss()) >= 0) {
-                    // If SL was lowered by trailing stop and we're below entry, it's a profitable trailing exit
                     boolean slMoved = trade.getOriginalStopLoss() != null && trade.getStopLoss().compareTo(trade.getOriginalStopLoss()) < 0;
                     boolean profitable = currentPrice.compareTo(trade.getEntryPrice()) < 0;
                     String reason = (slMoved && profitable) ? "TRAILING_STOP" : "STOP_LOSS";
-                    logger.info("⛔ Local SL hit for SHORT Trade {}. Price {} >= SL {} (original SL: {}, reason: {})",
+                    BigDecimal exitPrice = trade.getStopLoss();
+                    logger.info("⛔ Local SL hit for SHORT Trade {}. Poll price {} >= SL {} → exiting at SL price (original SL: {}, reason: {})",
                             trade.getId(), currentPrice, trade.getStopLoss(), trade.getOriginalStopLoss(), reason);
-                    closeTrade(trade, currentPrice, reason);
+                    closeTrade(trade, exitPrice, reason);
                     return true;
                 }
             }
@@ -922,16 +924,16 @@ public class TradeManager {
             // Check Take Profit
             if (isLong) {
                 if (currentPrice.compareTo(trade.getTakeProfit()) >= 0) {
-                    logger.info("🎯 Local TP hit for LONG Trade {}. Price {} >= TP {}",
+                    logger.info("🎯 Local TP hit for LONG Trade {}. Poll price {} >= TP {} → exiting at TP price",
                             trade.getId(), currentPrice, trade.getTakeProfit());
-                    closeTrade(trade, currentPrice, "TAKE_PROFIT");
+                    closeTrade(trade, trade.getTakeProfit(), "TAKE_PROFIT");
                     return true;
                 }
             } else {
                 if (currentPrice.compareTo(trade.getTakeProfit()) <= 0) {
-                    logger.info("🎯 Local TP hit for SHORT Trade {}. Price {} <= TP {}",
+                    logger.info("🎯 Local TP hit for SHORT Trade {}. Poll price {} <= TP {} → exiting at TP price",
                             trade.getId(), currentPrice, trade.getTakeProfit());
-                    closeTrade(trade, currentPrice, "TAKE_PROFIT");
+                    closeTrade(trade, trade.getTakeProfit(), "TAKE_PROFIT");
                     return true;
                 }
             }
