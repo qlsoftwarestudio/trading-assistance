@@ -72,7 +72,7 @@ trading:
     # Risk Management
     use-atr-stop: false
     symbol-risk-config: "HYPEUSDT:0.6:1.2,SOLUSDT:1.0:1.5"
-    trailing-stop-pct: 0.6
+    trailing-stop-pct: 0.3
     trailing-activation-pct: 0.15
     breakeven-activation-pct: 0.10
     min-profit-pct: 0.15
