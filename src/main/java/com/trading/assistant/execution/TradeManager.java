@@ -324,8 +324,17 @@ public class TradeManager {
         String sym = signal.getSymbol() != null ? signal.getSymbol().toString() : symbol;
         String[] creds = resolveBotCredentials(userId, sym);
         if (creds != null) {
-            logger.info("Using bot-specific API keys for LONG entry (userId={}, sym={})", userId, sym);
-            executeEntry(signal, "LONG", qty -> binanceClient.placeBuyOrderForBot(qty, creds[0], creds[1], sym), creds);
+            try {
+                logger.info("Using bot-specific API keys for LONG entry (userId={}, sym={})", userId, sym);
+                executeEntry(signal, "LONG", qty -> binanceClient.placeBuyOrderForBot(qty, creds[0], creds[1], sym), creds);
+            } catch (Exception e) {
+                if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                    logger.warn("Bot credentials failed with 401 for userId={} sym={}. Falling back to global credentials.", userId, sym);
+                    executeEntry(signal, "LONG", binanceClient::placeBuyOrder, null);
+                } else {
+                    throw e;
+                }
+            }
         } else {
             executeEntry(signal, "LONG", binanceClient::placeBuyOrder, null);
         }
@@ -339,8 +348,17 @@ public class TradeManager {
         String sym = signal.getSymbol() != null ? signal.getSymbol().toString() : symbol;
         String[] creds = resolveBotCredentials(userId, sym);
         if (creds != null) {
-            logger.info("Using bot-specific API keys for SHORT entry (userId={}, sym={})", userId, sym);
-            executeEntry(signal, "SHORT", qty -> binanceClient.placeShortSellOrderForBot(qty, creds[0], creds[1], sym), creds);
+            try {
+                logger.info("Using bot-specific API keys for SHORT entry (userId={}, sym={})", userId, sym);
+                executeEntry(signal, "SHORT", qty -> binanceClient.placeShortSellOrderForBot(qty, creds[0], creds[1], sym), creds);
+            } catch (Exception e) {
+                if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                    logger.warn("Bot credentials failed with 401 for userId={} sym={}. Falling back to global credentials.", userId, sym);
+                    executeEntry(signal, "SHORT", binanceClient::placeShortSellOrder, null);
+                } else {
+                    throw e;
+                }
+            }
         } else {
             executeEntry(signal, "SHORT", binanceClient::placeShortSellOrder, null);
         }
