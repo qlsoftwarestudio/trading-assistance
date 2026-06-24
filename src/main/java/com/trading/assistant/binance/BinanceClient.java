@@ -533,6 +533,7 @@ public class BinanceClient {
     }
 
     private String placeConditionalOrderViaAlgo(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice, String type) {
+        AtomicReference<String> errorBodyRef = new AtomicReference<>();
         try {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", symbol);
@@ -557,14 +558,16 @@ public class BinanceClient {
                     .header("X-MBX-APIKEY", apiKey)
                     .retrieve()
                     .onStatus(status -> status.is4xxClientError(), clientResponse ->
-                        clientResponse.bodyToMono(String.class).doOnNext(body ->
-                            logger.error("Binance 4xx placing algo {} ({}): {}", type, clientResponse.statusCode(), body)
-                        ).then(clientResponse.createException())
+                        clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            errorBodyRef.set(body);
+                            logger.error("Binance 4xx placing algo {} ({}): {}", type, clientResponse.statusCode(), body);
+                        }).then(clientResponse.createException())
                     )
                     .onStatus(status -> status.is5xxServerError(), clientResponse ->
-                        clientResponse.bodyToMono(String.class).doOnNext(body ->
-                            logger.error("Binance 5xx placing algo {} ({}): {}", type, clientResponse.statusCode(), body)
-                        ).then(clientResponse.createException())
+                        clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            errorBodyRef.set(body);
+                            logger.error("Binance 5xx placing algo {} ({}): {}", type, clientResponse.statusCode(), body);
+                        }).then(clientResponse.createException())
                     )
                     .bodyToMono(String.class)
                     .block();
@@ -826,6 +829,7 @@ public class BinanceClient {
 
     private String placeConditionalOrderViaAlgoForBot(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice,
                                                        String type, String botApiKey, String botApiSecret, String targetSymbol) {
+        AtomicReference<String> errorBodyRef = new AtomicReference<>();
         try {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", targetSymbol);
@@ -849,13 +853,30 @@ public class BinanceClient {
                     .uri("/fapi/v1/algoOrder?" + query)
                     .header("X-MBX-APIKEY", botApiKey)
                     .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            errorBodyRef.set(body);
+                            logger.error("[Bot] Binance 4xx placing algo {} ({}): {}", type, clientResponse.statusCode(), body);
+                        }).then(clientResponse.createException())
+                    )
+                    .onStatus(status -> status.is5xxServerError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            errorBodyRef.set(body);
+                            logger.error("[Bot] Binance 5xx placing algo {} ({}): {}", type, clientResponse.statusCode(), body);
+                        }).then(clientResponse.createException())
+                    )
                     .bodyToMono(String.class)
                     .block();
 
             logger.info("[Bot] {} algo order placed: {}", type, response);
             return extractAlgoId(response);
         } catch (Exception e) {
-            logger.error("[Bot] Error placing {} algo order: {}", type, e.getMessage(), e);
+            String errorDetails = errorBodyRef.get();
+            if (errorDetails != null) {
+                logger.error("[Bot] Error placing {} algo order: {} | Binance body: {}", type, e.getMessage(), errorDetails);
+            } else {
+                logger.error("[Bot] Error placing {} algo order: {}", type, e.getMessage(), e);
+            }
             return null;
         }
     }
