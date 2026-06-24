@@ -519,9 +519,8 @@ public class BinanceClient {
                     .onStatus(status -> status.is4xxClientError(), clientResponse ->
                         clientResponse.bodyToMono(String.class).doOnNext(body -> {
                             errorBodyRef.set(body);
-                            logger.error("Binance 4xx placing {} ({}): {}", type, clientResponse.statusCode(), body);
-                            if (body.contains("-4120") || body.contains("not supported") || body.contains("Algo Order API")) {
-                                logger.warn("Order type {} not supported on /fapi/v1/order, will try /fapi/v1/algoOrder", type);
+                            if (!body.contains("-4120") && !body.contains("not supported") && !body.contains("Algo Order API")) {
+                                logger.error("Binance 4xx placing {} ({}): {}", type, clientResponse.statusCode(), body);
                             }
                         }).then(clientResponse.createException())
                     )
@@ -819,9 +818,8 @@ public class BinanceClient {
                     .onStatus(status -> status.is4xxClientError(), clientResponse ->
                         clientResponse.bodyToMono(String.class).doOnNext(body -> {
                             errorBodyRef.set(body);
-                            logger.error("[Bot] Binance 4xx placing {} ({}): {}", type, clientResponse.statusCode(), body);
-                            if (body.contains("-4120") || body.contains("not supported") || body.contains("Algo Order API")) {
-                                logger.warn("[Bot] Order type {} not supported on /fapi/v1/order, will try /fapi/v1/algoOrder", type);
+                            if (!body.contains("-4120") && !body.contains("not supported") && !body.contains("Algo Order API")) {
+                                logger.error("[Bot] Binance 4xx placing {} ({}): {}", type, clientResponse.statusCode(), body);
                             }
                         }).then(clientResponse.createException())
                     )
