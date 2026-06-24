@@ -1392,35 +1392,38 @@ public class TradeManager {
                         : binanceClient.placeSellOrderForSymbol(tradeSymbol, trade.getQuantity());
             }
 
-            if (orderId != null) {
-                // Commission = round-trip taker fee on notional (0.05% entry + 0.05% exit = 0.10%)
-                BigDecimal commission = trade.getQuantity()
-                        .multiply(trade.getEntryPrice())
-                        .multiply(BigDecimal.valueOf(0.001))
-                        .setScale(8, RoundingMode.HALF_UP);
-
-                trade.close(exitPrice, reason, commission);
-                tradeRepository.save(trade);
-
-                if ("STOP_LOSS".equals(reason)) {
-                    lastSlTime.put(trade.getAction(), LocalDateTime.now());
-                    logger.info("⏸️ SL cooldown started for {} - no new {} entries for {} min",
-                            trade.getAction(), trade.getAction(), slCooldownMinutes);
-                }
-
-                tradePeakPrices.remove(trade.getId());
-                tradeEntryMomentum.remove(trade.getId());
-
-                // Save to trade journal for learning
-                saveTradeJournal(trade, reason);
-
-                telegramBot.sendTradeNotification(trade, "EXIT");
-
-                logger.info("✅ Trade {} closed. Reason: {}, P&L: ${} ({}%)",
-                        trade.getId(), reason, trade.getPnl(), trade.getPnlPercent());
-            } else {
-                logger.error("❌ Failed to close trade {} on Binance", trade.getId());
+            if (orderId == null) {
+                // Binance close failed — position likely already closed by algo order (SL/TP triggered on Binance)
+                // Force-close in DB to prevent trade stuck in OPEN state forever
+                logger.warn("⚠️ Could not place close order for Trade {} on Binance (position may already be closed by algo order). Force-closing in DB at price {}.",
+                        trade.getId(), exitPrice);
             }
+
+            // Close in DB regardless: if orderId is null, algo order already closed the position on Binance
+            BigDecimal commission = trade.getQuantity()
+                    .multiply(trade.getEntryPrice())
+                    .multiply(BigDecimal.valueOf(0.001))
+                    .setScale(8, RoundingMode.HALF_UP);
+
+            trade.close(exitPrice, reason, commission);
+            tradeRepository.save(trade);
+
+            if ("STOP_LOSS".equals(reason)) {
+                lastSlTime.put(trade.getAction(), LocalDateTime.now());
+                logger.info("⏸️ SL cooldown started for {} - no new {} entries for {} min",
+                        trade.getAction(), trade.getAction(), slCooldownMinutes);
+            }
+
+            tradePeakPrices.remove(trade.getId());
+            tradeEntryMomentum.remove(trade.getId());
+
+            // Save to trade journal for learning
+            saveTradeJournal(trade, reason);
+
+            telegramBot.sendTradeNotification(trade, "EXIT");
+
+            logger.info("✅ Trade {} closed. Reason: {}, P&L: ${} ({}%)",
+                    trade.getId(), reason, trade.getPnl(), trade.getPnlPercent());
 
         } catch (Exception e) {
             logger.error("Error closing trade {}: {}", trade.getId(), e.getMessage(), e);
