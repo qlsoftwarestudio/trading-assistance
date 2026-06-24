@@ -492,9 +492,10 @@ public class TradeManager {
             logger.info("🎯 Scalp capital allocation - Balance: ${}, Pos size: ${} ({}% × {}% hunter)",
                     balance, positionSize, positionSizePct, hunterPositionSizePct);
 
-            // Calculate quantity (consider leverage)
+            // Calculate quantity (consider leverage), rounded to symbol lot size to match Binance execution
             BigDecimal notional = positionSize.multiply(BigDecimal.valueOf(leverage));
-            BigDecimal quantity = notional.divide(currentPrice, 8, RoundingMode.HALF_DOWN);
+            BigDecimal quantity = binanceClient.roundQuantityForSymbol(symbol,
+                    notional.divide(currentPrice, 8, RoundingMode.HALF_DOWN));
 
             // Validate minimum notional
             if (notional.compareTo(BigDecimal.valueOf(minNotional)) < 0) {
@@ -675,9 +676,10 @@ public class TradeManager {
             logger.info("Capital allocation - Balance: ${}, Raw pos size: ${} ({}%), Slots: {}/{}, Adjusted pos size: ${}",
                     balance, rawPositionSize, String.format("%.1f", effectivePositionSizePct), openCount, maxConcurrentTrades, positionSize);
 
-            // Calculate quantity (consider leverage)
+            // Calculate quantity (consider leverage), rounded to symbol lot size to match Binance execution
             BigDecimal notional = positionSize.multiply(BigDecimal.valueOf(leverage));
-            BigDecimal quantity = notional.divide(currentPrice, 8, RoundingMode.HALF_DOWN);
+            BigDecimal quantity = binanceClient.roundQuantityForSymbol(tradeSymbol,
+                    notional.divide(currentPrice, 8, RoundingMode.HALF_DOWN));
 
             // Validate minimum notional
             if (notional.compareTo(BigDecimal.valueOf(minNotional)) < 0) {

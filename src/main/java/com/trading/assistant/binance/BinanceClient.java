@@ -382,7 +382,7 @@ public class BinanceClient {
             return "DEMO_ORDER_" + System.currentTimeMillis();
         }
         try {
-            int symPrecision = sym.equals(this.symbol) ? this.quantityPrecision : 2;
+            int symPrecision = symbolQuantityPrecision.getOrDefault(sym.toUpperCase(), quantityPrecision);
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", sym);
             params.put("side", side);
@@ -697,12 +697,13 @@ public class BinanceClient {
             return placeOrder(side, positionSide, quantity, reduceOnly);
         }
         try {
+            int symQtyPrec = symbolQuantityPrecision.getOrDefault(targetSymbol.toUpperCase(), quantityPrecision);
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", targetSymbol);
             params.put("side", side);
             if (hedgeMode) params.put("positionSide", positionSide);
             params.put("type", "MARKET");
-            params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
+            params.put("quantity", quantity.setScale(symQtyPrec, RoundingMode.DOWN).toPlainString());
             if (reduceOnly) params.put("reduceOnly", "true");
 
             String query = buildSignedQueryWithCredentials(params, botApiSecret);
@@ -986,6 +987,11 @@ public class BinanceClient {
         } catch (Exception e) {
             throw new RuntimeException("Failed to sign request", e);
         }
+    }
+
+    public BigDecimal roundQuantityForSymbol(String sym, BigDecimal qty) {
+        int prec = symbolQuantityPrecision.getOrDefault(sym.toUpperCase(), quantityPrecision);
+        return qty.setScale(prec, RoundingMode.DOWN);
     }
 
     private String extractOrderId(String jsonResponse) {
