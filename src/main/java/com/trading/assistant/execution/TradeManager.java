@@ -1285,31 +1285,70 @@ public class TradeManager {
      * Called when SL or TP is executed server-side.
      */
     public void handleOrderUpdate(String orderId, String orderType, String status, String avgPrice) {
+        handleOrderUpdate(orderId, orderType, status, avgPrice, null, null, false);
+    }
+
+    public void handleOrderUpdate(String orderId, String orderType, String status, String avgPrice,
+                                   String sym, String side, boolean reduceOnly) {
         try {
             if (orderId == null || orderId.isEmpty()) return;
-            // Find trade by SL or TP order ID
-            Trade trade = null;
             List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
+
+            // Primary match: by stored SL/TP order ID (works for regular orders)
+            Trade trade = null;
             for (Trade t : openTrades) {
                 if (orderId.equals(t.getStopLossOrderId()) || orderId.equals(t.getTakeProfitOrderId())) {
                     trade = t;
                     break;
                 }
             }
+
+            // Fallback: algo orders fire with a NEW orderId not stored in DB.
+            // Match by symbol + reduce-only + order type to find the affected open trade.
+            if (trade == null && sym != null && !sym.isEmpty() && reduceOnly) {
+                boolean isStopEvent = "STOP_MARKET".equalsIgnoreCase(orderType) || "STOP".equalsIgnoreCase(orderType);
+                boolean isTpEvent   = "TAKE_PROFIT_MARKET".equalsIgnoreCase(orderType) || "TAKE_PROFIT".equalsIgnoreCase(orderType);
+                if (isStopEvent || isTpEvent) {
+                    for (Trade t : openTrades) {
+                        if (sym.equals(t.getSymbol())) {
+                            // side of the close order is opposite to trade direction
+                            boolean longClose  = "SELL".equalsIgnoreCase(side) && "LONG".equals(t.getAction());
+                            boolean shortClose = "BUY".equalsIgnoreCase(side)  && "SHORT".equals(t.getAction());
+                            if (longClose || shortClose) {
+                                trade = t;
+                                logger.info("📡 WS fallback match: Trade {} matched by sym={} side={} type={}",
+                                        t.getId(), sym, side, orderType);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
             if (trade == null) {
-                logger.warn("Received WS order update for unknown orderId: {} (type={})", orderId, orderType);
+                logger.warn("📡 WS order update ignored — no matching open trade. orderId={} type={} sym={} side={}",
+                        orderId, orderType, sym, side);
                 return;
             }
 
-            BigDecimal exitPrice = new BigDecimal(avgPrice);
+            BigDecimal exitPrice = (avgPrice != null && !avgPrice.equals("0") && !avgPrice.isEmpty())
+                    ? new BigDecimal(avgPrice) : null;
+            if (exitPrice == null || exitPrice.compareTo(BigDecimal.ZERO) == 0) {
+                exitPrice = trade.getStopLoss(); // fallback to stored SL if avgPrice missing
+            }
+
             String reason;
-            if ("STOP_MARKET".equalsIgnoreCase(orderType) || orderId.equals(trade.getStopLossOrderId())) {
-                reason = "TRAILING_STOP".equals(trade.getExitReason()) ? "TRAILING_STOP" : "STOP_LOSS";
+            boolean isStop = "STOP_MARKET".equalsIgnoreCase(orderType) || "STOP".equalsIgnoreCase(orderType)
+                    || orderId.equals(trade.getStopLossOrderId());
+            if (isStop) {
+                reason = (trade.getOriginalStopLoss() != null
+                        && trade.getStopLoss().compareTo(trade.getOriginalStopLoss()) != 0)
+                        ? "TRAILING_STOP" : "STOP_LOSS";
             } else {
                 reason = "TAKE_PROFIT";
             }
 
-            logger.info("� WS Event: {} executed for Trade {} at price={}", reason, trade.getId(), exitPrice);
+            logger.info("📡 WS Event: {} executed for Trade {} at price={}", reason, trade.getId(), exitPrice);
             closeTradeFromEvent(trade, exitPrice, reason);
         } catch (Exception e) {
             logger.error("Error handling WS order update: {}", e.getMessage(), e);

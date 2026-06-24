@@ -153,12 +153,16 @@ public class BinanceUserDataStreamClient {
                     String status = order.has("X") ? order.get("X").asText() : "";
                     String orderId = order.has("i") ? order.get("i").asText() : "";
                     String avgPrice = order.has("ap") ? order.get("ap").asText() : "0";
+                    String sym = order.has("s") ? order.get("s").asText() : "";
+                    String side = order.has("S") ? order.get("S").asText() : "";
+                    // cp=closePosition, R=reduceOnly
+                    boolean reduceOnly = order.has("R") && order.get("R").asBoolean();
 
-                    logger.info("📡 WS ORDER_TRADE_UPDATE: type={}, status={}, orderId={}, avgPrice={}",
-                            orderType, status, orderId, avgPrice);
+                    logger.info("📡 WS ORDER_TRADE_UPDATE: type={}, status={}, orderId={}, sym={}, side={}, reduceOnly={}, avgPrice={}",
+                            orderType, status, orderId, sym, side, reduceOnly, avgPrice);
 
                     if ("FILLED".equals(status) || "PARTIALLY_FILLED".equals(status)) {
-                        tradeManager.handleOrderUpdate(orderId, orderType, status, avgPrice);
+                        tradeManager.handleOrderUpdate(orderId, orderType, status, avgPrice, sym, side, reduceOnly);
                     }
                 }
             } else if ("listenKeyExpired".equals(eventType)) {
