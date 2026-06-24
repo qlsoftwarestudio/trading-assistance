@@ -88,6 +88,30 @@ public class HypeStrategy {
     @Value("${trading.strategy.timeframe:15m}")
     private String timeframe;
 
+    @Value("${trading.strategy.position-size-pct:10.0}")
+    private double positionSizePct;
+
+    @Value("${trading.strategy.leverage:5}")
+    private int leverage;
+
+    @Value("${trading.strategy.stop-loss-pct:0.6}")
+    private double stopLossPct;
+
+    @Value("${trading.strategy.take-profit-pct:1.2}")
+    private double takeProfitPct;
+
+    @Value("${trading.strategy.max-concurrent-trades:2}")
+    private int maxConcurrentTrades;
+
+    @Value("${trading.strategy.max-hold-minutes:45}")
+    private int maxHoldMinutes;
+
+    @Value("${trading.strategy.trailing-stop-pct:0.6}")
+    private double trailingStopPct;
+
+    @Value("${trading.strategy.trailing-activation-pct:0.4}")
+    private double trailingActivationPct;
+
     @Value("${trading.context.enabled:true}")
     private boolean contextEnabled;
 
@@ -877,10 +901,13 @@ public class HypeStrategy {
     }
 
     public String getStrategyStatus() {
-        return String.format("Swing Multi-Pair: %s | Enabled: %s | Running: %s | Disabled: %s | " +
-                        "RSI(%d) < %.0f / > %.0f | Lookback: %d | Killzone: %.1f%% | Min Momentum: %.1f%% | " +
-                        "Context: %s",
-                symbols, strategyEnabled, running, disabledSymbols, rsiLength, rsiOversold, rsiOverbought,
-                lookbackBars, killzoneThreshold, minMomentum, contextEnabled);
+        return String.format("Swing Multi-Pair: %s | Enabled: %s | Running: %s | Disabled: %s |\n" +
+                        "Pos: %.0f%% | Lev: %dx | SL: %.1f%% | TP: %.1f%% | MaxTrades: %d | MaxHold: %dm |\n" +
+                        "RSI(%d) < %.0f / > %.0f | Lookback: %d | Killzone: %.1f%% | MinMom: %.1f%% |\n" +
+                        "Trail: %.1f%% (act %.1f%%) | Context: %s",
+                symbols, strategyEnabled, running, disabledSymbols,
+                positionSizePct, leverage, stopLossPct, takeProfitPct, maxConcurrentTrades, maxHoldMinutes,
+                rsiLength, rsiOversold, rsiOverbought, lookbackBars, killzoneThreshold, minMomentum,
+                trailingStopPct, trailingActivationPct, contextEnabled);
     }
 }
