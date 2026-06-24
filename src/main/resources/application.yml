@@ -149,7 +149,7 @@ trading:
     stoch-overbought: 80             # %K threshold for SHORT confirmation
     bb-period: 20                    # Bollinger Bands SMA period (standard: 20)
     bb-std-dev: 2.0                  # Standard deviations (standard: 2.0)
-    bb-proximity-pct: 1.0            # Price must be within this % of BB band to qualify
+    bb-proximity-pct: 0.3            # Price must be within this % of BB band to qualify (stricter)
     use-bb-based-sl: false           # Tighten SL to BB band when enabled
     bb-sl-buffer-pct: 0.1            # Buffer below BB lower (for LONG SL) as % of band price
 
