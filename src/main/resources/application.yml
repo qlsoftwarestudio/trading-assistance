@@ -141,7 +141,7 @@ trading:
     short-min-volume-uptrend: 2.0
     short-min-conditions-uptrend: 2
     # Stochastic + Bollinger Bands confirmation filter
-    use-stoch-bb-filter: false       # Set to true to enable. OFF by default to avoid breaking existing behavior
+    use-stoch-bb-filter: true        # ON: entries only near BB bands + stoch confirmation
     stoch-period: 14                 # Stochastic lookback period (standard: 14)
     stoch-smooth-k: 3                # %K smoothing (standard: 3)
     stoch-smooth-d: 3                # %D smoothing (standard: 3)
