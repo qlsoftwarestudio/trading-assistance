@@ -48,7 +48,7 @@ binance:
     secret: ${BINANCE_SECRET_KEY:}
     base-url: ${BINANCE_BASE_URL:https://testnet.binancefuture.com}
     websocket-url: ${BINANCE_WS_URL:wss://testnet.binancefuture.com/ws}
-  testnet: ${BINANCE_TESTNET:true}
+  testnet: ${BINANCE_TESTNET:false}
 
 # Trading Strategy Configuration
 trading:
@@ -63,7 +63,7 @@ trading:
     min-momentum: 0.05
     stop-loss-pct: 0.6
     take-profit-pct: 1.2
-    position-size-pct: 10.0
+    position-size-pct: 33.0
     leverage: 5
     enabled: true
     max-concurrent-trades: 2

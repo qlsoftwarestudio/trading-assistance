@@ -179,7 +179,7 @@ public class AdminService {
     @Value("${telegram.bot.enabled:false}")
     private boolean telegramEnabled;
 
-    @Value("${binance.testnet:true}")
+    @Value("${binance.testnet:false}")
     private boolean binanceTestnet;
 
     /**
