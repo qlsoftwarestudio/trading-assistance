@@ -53,6 +53,9 @@ public class BinanceClient {
     private boolean configured = false;
     private boolean testnetMode = false;
     private int quantityPrecision = 1;
+    private int pricePrecision = 2;
+    private final Map<String, Integer> symbolQuantityPrecision = new ConcurrentHashMap<>();
+    private final Map<String, Integer> symbolPricePrecision = new ConcurrentHashMap<>();
     private final Map<String, String> algoOrderTypes = new ConcurrentHashMap<>();
 
     @PostConstruct
@@ -82,16 +85,27 @@ public class BinanceClient {
                     .block();
             JsonNode root = mapper.readTree(response);
             for (JsonNode s : root.get("symbols")) {
-                if (symbol.equals(s.get("symbol").asText())) {
-                    quantityPrecision = s.get("quantityPrecision").asInt();
-                    logger.info("Symbol {} quantityPrecision: {}", symbol, quantityPrecision);
-                    return;
+                String sym = s.get("symbol").asText();
+                int qtyPrec = s.get("quantityPrecision").asInt();
+                int pricePrec = s.get("pricePrecision").asInt();
+                symbolQuantityPrecision.put(sym, qtyPrec);
+                symbolPricePrecision.put(sym, pricePrec);
+                if (symbol.equals(sym)) {
+                    quantityPrecision = qtyPrec;
+                    pricePrecision = pricePrec;
                 }
             }
-            logger.warn("Symbol {} not found in exchangeInfo, using default precision: {}", symbol, quantityPrecision);
+            logger.info("Loaded {} symbols from exchangeInfo. Default {} qtyPrec={} pricePrec={}",
+                    symbolQuantityPrecision.size(), symbol, quantityPrecision, pricePrecision);
         } catch (Exception e) {
-            logger.warn("Could not fetch quantityPrecision for {}: {}. Using default: {}", symbol, e.getMessage(), quantityPrecision);
+            logger.warn("Could not fetch exchangeInfo: {}. Using defaults qtyPrec={} pricePrec={}",
+                    e.getMessage(), quantityPrecision, pricePrecision);
         }
+    }
+
+    private int getPricePrecisionForSymbol(String sym) {
+        if (sym == null) return pricePrecision;
+        return symbolPricePrecision.getOrDefault(sym, pricePrecision);
     }
 
     public boolean isConfigured() {
@@ -483,13 +497,14 @@ public class BinanceClient {
             if (hedgeMode) {
                 params.put("positionSide", positionSide);
             }
+            int pricePrec = getPricePrecisionForSymbol(symbol);
             params.put("type", type);
             params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             params.put("reduceOnly", "true");
-            params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("stopPrice", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
 
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
-                params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+                params.put("price", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
                 params.put("timeInForce", "GTC");
             }
 
@@ -541,14 +556,15 @@ public class BinanceClient {
             if (hedgeMode) {
                 params.put("positionSide", positionSide);
             }
+            int pricePrec = getPricePrecisionForSymbol(symbol);
             params.put("algoType", "CONDITIONAL");
             params.put("type", type);
             params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             params.put("reduceOnly", "true");
-            params.put("triggerPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("triggerPrice", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
 
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
-                params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+                params.put("price", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
                 params.put("timeInForce", "GTC");
             }
 
@@ -778,13 +794,14 @@ public class BinanceClient {
             if (hedgeMode) {
                 params.put("positionSide", positionSide);
             }
+            int pricePrec = getPricePrecisionForSymbol(targetSymbol);
             params.put("type", type);
             params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             params.put("reduceOnly", "true");
-            params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("stopPrice", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
 
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
-                params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+                params.put("price", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
                 params.put("timeInForce", "GTC");
             }
 
@@ -837,14 +854,15 @@ public class BinanceClient {
             if (hedgeMode) {
                 params.put("positionSide", positionSide);
             }
+            int pricePrec = getPricePrecisionForSymbol(targetSymbol);
             params.put("algoType", "CONDITIONAL");
             params.put("type", type);
             params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             params.put("reduceOnly", "true");
-            params.put("triggerPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("triggerPrice", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
 
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
-                params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+                params.put("price", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
                 params.put("timeInForce", "GTC");
             }
 
