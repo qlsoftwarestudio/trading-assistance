@@ -286,6 +286,9 @@ public class BinanceClient {
             logger.info("[Bot] Leverage set for {}: {}", targetSymbol, response);
         } catch (Exception e) {
             logger.error("[Bot] Error setting leverage for {}: {}", targetSymbol, e.getMessage());
+            if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                throw new RuntimeException("[Bot] 401 Unauthorized setting leverage for " + targetSymbol + ": " + e.getMessage(), e);
+            }
         }
     }
 
@@ -759,6 +762,9 @@ public class BinanceClient {
             return BigDecimal.ZERO;
         } catch (Exception e) {
             logger.error("[Bot] Error getting balance: {}", e.getMessage());
+            if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                throw new RuntimeException("[Bot] 401 Unauthorized getting balance: " + e.getMessage(), e);
+            }
             return BigDecimal.ZERO;
         }
     }
