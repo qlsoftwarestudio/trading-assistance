@@ -540,10 +540,11 @@ public class BinanceClient {
             if (hedgeMode) {
                 params.put("positionSide", positionSide);
             }
+            params.put("algoType", "CONDITIONAL");
             params.put("type", type);
             params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             params.put("reduceOnly", "true");
-            params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("triggerPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
 
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
                 params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
@@ -832,10 +833,11 @@ public class BinanceClient {
             if (hedgeMode) {
                 params.put("positionSide", positionSide);
             }
+            params.put("algoType", "CONDITIONAL");
             params.put("type", type);
             params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
             params.put("reduceOnly", "true");
-            params.put("stopPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
+            params.put("triggerPrice", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
 
             if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
                 params.put("price", stopPrice.setScale(8, RoundingMode.HALF_UP).toPlainString());
