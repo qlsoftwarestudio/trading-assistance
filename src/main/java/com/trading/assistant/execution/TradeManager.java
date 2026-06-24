@@ -122,6 +122,9 @@ public class TradeManager {
     @Value("${trading.strategy.min-profit-pct:0.08}")
     private double minProfitPct;
 
+    @Value("${trading.strategy.min-sl-update-distance-pct:0.1}")
+    private double minSlUpdateDistancePct;
+
     @Value("${trading.strategy.time-based-trail-pct:0.5}")
     private double timeBasedTrailPct;
 
@@ -1047,7 +1050,7 @@ public class TradeManager {
         // Phase 1: Breakeven lock
         if (favorableMove >= breakevenThreshold && favorableMove < activationThreshold) {
             boolean shouldUpdate = isShort ? breakevenSL.compareTo(stopLoss) < 0 : breakevenSL.compareTo(stopLoss) > 0;
-            if (shouldUpdate) {
+            if (shouldUpdate && isSlFarEnough(currentPrice, breakevenSL, isShort)) {
                 trade.setStopLoss(breakevenSL);
                 tradeRepository.save(trade);
                 updateBinanceStopLossOrder(trade);
@@ -1074,7 +1077,7 @@ public class TradeManager {
             if (isShort) {
                 newSL = peak.add(trailingDistance);
                 effectiveSL = newSL.min(breakevenSL);
-                if (effectiveSL.compareTo(stopLoss) < 0) {
+                if (effectiveSL.compareTo(stopLoss) < 0 && isSlFarEnough(currentPrice, effectiveSL, isShort)) {
                     trade.setStopLoss(effectiveSL);
                     tradeRepository.save(trade);
                     updateBinanceStopLossOrder(trade);
@@ -1084,7 +1087,7 @@ public class TradeManager {
             } else {
                 newSL = peak.subtract(trailingDistance);
                 effectiveSL = newSL.max(breakevenSL);
-                if (effectiveSL.compareTo(stopLoss) > 0) {
+                if (effectiveSL.compareTo(stopLoss) > 0 && isSlFarEnough(currentPrice, effectiveSL, isShort)) {
                     trade.setStopLoss(effectiveSL);
                     tradeRepository.save(trade);
                     updateBinanceStopLossOrder(trade);
@@ -1127,7 +1130,7 @@ public class TradeManager {
             BigDecimal newSL;
             if (isShort) {
                 newSL = peak.add(trailingDistance).setScale(8, RoundingMode.HALF_UP);
-                if (newSL.compareTo(stopLoss) < 0) {
+                if (newSL.compareTo(stopLoss) < 0 && isSlFarEnough(currentPrice, newSL, isShort)) {
                     trade.setStopLoss(newSL);
                     tradeRepository.save(trade);
                     updateBinanceStopLossOrder(trade);
@@ -1136,7 +1139,7 @@ public class TradeManager {
                 }
             } else {
                 newSL = peak.subtract(trailingDistance).setScale(8, RoundingMode.HALF_UP);
-                if (newSL.compareTo(stopLoss) > 0) {
+                if (newSL.compareTo(stopLoss) > 0 && isSlFarEnough(currentPrice, newSL, isShort)) {
                     trade.setStopLoss(newSL);
                     tradeRepository.save(trade);
                     updateBinanceStopLossOrder(trade);
@@ -1148,6 +1151,17 @@ public class TradeManager {
             logger.debug("Scalp trailing not yet active for Trade {}. Move: {}% (need {}%)",
                     trade.getId(), String.format("%.3f", movePct), String.format("%.2f", hunterTrailingActivation));
         }
+    }
+
+    private boolean isSlFarEnough(BigDecimal currentPrice, BigDecimal newSl, boolean isShort) {
+        double distance = isShort
+                ? (newSl.doubleValue() - currentPrice.doubleValue()) / currentPrice.doubleValue() * 100.0
+                : (currentPrice.doubleValue() - newSl.doubleValue()) / currentPrice.doubleValue() * 100.0;
+        if (distance < minSlUpdateDistancePct) {
+            logger.info("SL update skipped: too close to price ({}% < {}%)", String.format("%.3f", distance), minSlUpdateDistancePct);
+            return false;
+        }
+        return true;
     }
 
     private void updateBinanceStopLossOrder(Trade trade) {

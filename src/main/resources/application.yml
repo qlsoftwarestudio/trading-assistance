@@ -79,6 +79,7 @@ trading:
     time-based-trail-pct: 0.5
     time-threshold-min: 10
     sl-cooldown-minutes: 10
+    min-sl-update-distance-pct: 0.1  # Min distance between current price and new SL before updating Binance (avoids "immediately trigger" errors)
     # Dynamic position sizing: adjust size based on volatility (ATR)
     position-size-volatility-adjust: true
     position-size-atr-lookback: 50
