@@ -331,6 +331,9 @@ public class TradeManager {
             User user = userRepository.findById(userId).orElse(null);
             if (user != null && user.getPlan() != null) {
                 double planMax = user.getPlan().getMaxCapitalUsd();
+                if (planMax == 0.0) {
+                    return Double.MAX_VALUE; // ENTERPRISE = unlimited
+                }
                 return planMax > 0 ? planMax : maxCapitalPerUserUsd;
             }
         } catch (Exception e) {
