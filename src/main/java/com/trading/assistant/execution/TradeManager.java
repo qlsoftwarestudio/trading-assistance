@@ -12,7 +12,9 @@ import com.trading.assistant.strategy.model.PriceProjection;
 import com.trading.assistant.strategy.model.Signal;
 import com.trading.assistant.strategy.repository.SignalRepository;
 import com.trading.assistant.user.model.Bot;
+import com.trading.assistant.user.model.User;
 import com.trading.assistant.user.repository.BotRepository;
+import com.trading.assistant.user.repository.UserRepository;
 import com.trading.assistant.user.service.EncryptionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +60,9 @@ public class TradeManager {
 
     @Autowired
     private EncryptionService encryptionService;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Value("${trading.strategy.stop-loss-pct:2.0}")
     private double stopLossPct;
@@ -317,6 +322,24 @@ public class TradeManager {
     }
 
     /**
+     * Get max capital limit for a user based on their subscription plan.
+     * Falls back to app config default if user not found.
+     */
+    private double getMaxCapitalForUser(Long userId) {
+        if (userId == null) return maxCapitalPerUserUsd;
+        try {
+            User user = userRepository.findById(userId).orElse(null);
+            if (user != null && user.getPlan() != null) {
+                double planMax = user.getPlan().getMaxCapitalUsd();
+                return planMax > 0 ? planMax : maxCapitalPerUserUsd;
+            }
+        } catch (Exception e) {
+            logger.warn("Could not resolve plan for userId={}: {}. Using default ${}.", userId, e.getMessage(), maxCapitalPerUserUsd);
+        }
+        return maxCapitalPerUserUsd;
+    }
+
+    /**
      * Execute LONG entry based on signal
      */
     public void executeLongEntry(Signal signal) {
@@ -554,17 +577,44 @@ public class TradeManager {
         try {
             BigDecimal currentPrice = signal.getPrice();
             String tradeSymbol = signal.getSymbol() != null ? signal.getSymbol() : symbol;
+            Long userId = signal.getUserId() != null ? signal.getUserId() : 1L;
 
-            // Set leverage for this symbol before trading
+            // Set leverage for this symbol before trading — with 401 fallback to global
+            boolean usingBotCreds = false;
             if (botCreds != null) {
-                binanceClient.setLeverageForBot(tradeSymbol, leverage, botCreds[0], botCreds[1]);
+                try {
+                    binanceClient.setLeverageForBot(tradeSymbol, leverage, botCreds[0], botCreds[1]);
+                    usingBotCreds = true;
+                } catch (Exception e) {
+                    if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                        logger.warn("Bot credentials 401 for leverage on {}. Falling back to global.", tradeSymbol);
+                        binanceClient.setLeverageForSymbol(tradeSymbol, leverage);
+                        usingBotCreds = false;
+                    } else {
+                        throw e;
+                    }
+                }
             } else {
                 binanceClient.setLeverageForSymbol(tradeSymbol, leverage);
             }
 
-            BigDecimal balance = (botCreds != null)
-                    ? binanceClient.getBalanceForBot("USDT", botCreds[0], botCreds[1])
-                    : binanceClient.getBalance("USDT");
+            // Get balance — with 401 fallback to global
+            BigDecimal balance;
+            if (usingBotCreds && botCreds != null) {
+                try {
+                    balance = binanceClient.getBalanceForBot("USDT", botCreds[0], botCreds[1]);
+                } catch (Exception e) {
+                    if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                        logger.warn("Bot credentials 401 for balance. Falling back to global.");
+                        balance = binanceClient.getBalance("USDT");
+                        usingBotCreds = false;
+                    } else {
+                        throw e;
+                    }
+                }
+            } else {
+                balance = binanceClient.getBalance("USDT");
+            }
 
             // Check daily loss limit
             if (isDailyLossLimitHit(balance)) {
@@ -577,7 +627,6 @@ public class TradeManager {
             }
 
             // Check concurrent trade limit — scoped to this user
-            Long userId = signal.getUserId() != null ? signal.getUserId() : 1L;
             long openCount = tradeRepository.countByUserIdAndStatus(userId, "OPEN");
             if (openCount >= maxConcurrentTrades) {
                 logger.info("Max concurrent trades reached for userId={} ({}/{}). Skipping {} entry.",
@@ -585,10 +634,11 @@ public class TradeManager {
                 return;
             }
 
-            // Check total exposed capital limit per user
+            // Check total exposed capital limit per user (based on plan)
             BigDecimal totalExposed = tradeRepository.calculateTotalInvestedOpenByUserId(userId);
             if (totalExposed == null) totalExposed = BigDecimal.ZERO;
-            BigDecimal maxCapital = BigDecimal.valueOf(maxCapitalPerUserUsd);
+            double maxCapitalUsd = getMaxCapitalForUser(userId);
+            BigDecimal maxCapital = BigDecimal.valueOf(maxCapitalUsd);
             if (maxCapital.compareTo(BigDecimal.ZERO) > 0 &&
                     totalExposed.compareTo(maxCapital) >= 0) {
                 logger.warn("Capital máximo alcanzado para userId={}. Total expuesto: ${} / ${}. Trade bloqueado.",
