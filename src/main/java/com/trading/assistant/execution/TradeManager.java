@@ -102,10 +102,10 @@ public class TradeManager {
     @Value("${trading.strategy.max-hold-minutes:45}")
     private int maxHoldMinutes;
 
-    // Dynamic max hold per symbol (HYPE=45min, SOL=90min, etc.)
+    // Dynamic max hold per symbol (HYPE=45min, SOL=120min, etc.)
     private final Map<String, Integer> maxHoldMinutesBySymbol = java.util.Map.of(
             "HYPEUSDT", 45,
-            "SOLUSDT", 90,
+            "SOLUSDT", 120,
             "BTCUSDT", 120,
             "ETHUSDT", 90
     );
@@ -1207,6 +1207,18 @@ public class TradeManager {
         boolean isScalp = journal != null && journal.setupType != null && journal.setupType.startsWith("SCALP_");
         int symbolMaxHold = maxHoldMinutesBySymbol.getOrDefault(trade.getSymbol(), maxHoldMinutes);
         int effectiveMaxHold = isScalp ? hunterMaxHoldMinutes : symbolMaxHold;
+
+        // Extend time exit when trade is in profit (>0.5%) to avoid cutting winning trades
+        boolean isLong = "LONG".equals(trade.getAction());
+        double entryPrice = trade.getEntryPrice().doubleValue();
+        double current = currentPrice.doubleValue();
+        boolean inProfit = isLong ? current > entryPrice : current < entryPrice;
+        double movePct = Math.abs((current - entryPrice) / entryPrice * 100.0);
+        if (inProfit && movePct > 0.5) {
+            effectiveMaxHold += 30;
+            logger.info("⏱️ Time exit extended for Trade {}: +30 min (profit {}%, new max: {} min)",
+                    trade.getId(), String.format("%.2f", movePct), effectiveMaxHold);
+        }
 
         if (held.toMinutes() >= effectiveMaxHold) {
             logger.info("⏱️ Time exit for {}Trade {}. Held: {} min (max: {} min, symbol: {}). Current: {}, Entry: {}",

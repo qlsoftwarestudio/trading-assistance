@@ -412,14 +412,23 @@ public class HypeStrategy {
             }
 
             // VWAP filter: LONG only within VWAP ± band%
+            // Hierarchy: allow override when Stoch+BB confirms extreme oversold (price near BB lower + stoch < 20)
             if (useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
                 double price = currentPrice.doubleValue();
                 double vwapVal = vwap.doubleValue();
                 double lower = vwapVal * (1 - vwapBandPct / 100.0);
                 double upper = vwapVal * (1 + vwapBandPct / 100.0);
                 if (price < lower || price > upper) {
-                    logger.info("❌ LONG rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", upper));
-                    return;
+                    boolean stochExtremeOversold = stochK5m < stochOversoldThreshold;
+                    double lowerBandGap = indicatorCalculator.getBBDistancePct(price, bbLower);
+                    boolean nearLowerBand = lowerBandGap <= bbProximityPct && lowerBandGap >= -1.0;
+                    if (useStochBbFilter && stochExtremeOversold && nearLowerBand) {
+                        logger.info("⚡ VWAP filter bypassed: Stoch+BB extreme oversold (stochK5m={} < {}, lowerBandGap={}%)",
+                                String.format("%.1f", stochK5m), stochOversoldThreshold, String.format("%.2f", lowerBandGap));
+                    } else {
+                        logger.info("❌ LONG rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", upper));
+                        return;
+                    }
                 }
             }
 
@@ -640,14 +649,23 @@ public class HypeStrategy {
             }
 
             // VWAP filter: SHORT only within VWAP ± band%
+            // Hierarchy: allow override when Stoch+BB confirms extreme overbought (price near BB upper + stoch > 80)
             if (useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
                 double price = currentPrice.doubleValue();
                 double vwapVal = vwap.doubleValue();
                 double lower = vwapVal * (1 - vwapBandPct / 100.0);
                 double upper = vwapVal * (1 + vwapBandPct / 100.0);
                 if (price < lower || price > upper) {
-                    logger.info("❌ SHORT rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", upper));
-                    return;
+                    boolean stochExtremeOverbought = stochK5m > stochOverboughtThreshold;
+                    double upperBandGap = indicatorCalculator.getBBDistancePct(price, bbUpper);
+                    boolean nearUpperBand = upperBandGap >= -bbProximityPct && upperBandGap <= 1.0;
+                    if (useStochBbFilter && stochExtremeOverbought && nearUpperBand) {
+                        logger.info("⚡ VWAP filter bypassed: Stoch+BB extreme overbought (stochK5m={} > {}, upperBandGap={}%)",
+                                String.format("%.1f", stochK5m), stochOverboughtThreshold, String.format("%.2f", upperBandGap));
+                    } else {
+                        logger.info("❌ SHORT rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", upper));
+                        return;
+                    }
                 }
             }
 
