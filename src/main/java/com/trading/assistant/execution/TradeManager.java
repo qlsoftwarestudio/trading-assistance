@@ -1067,12 +1067,9 @@ public class TradeManager {
         if (favorableMove >= activationThreshold) {
             double dynamicTrailPct;
             if (movePct >= 1.0) {
-                dynamicTrailPct = 0.25;
-            } else if (movePct < 0.8) {
-                long heldMin = Duration.between(entryTime, LocalDateTime.now()).toMinutes();
-                dynamicTrailPct = (heldMin < timeThresholdMin) ? timeBasedTrailPct : 0.3;
+                dynamicTrailPct = Math.max(0.15, trailingStopPct / 2.0);
             } else {
-                dynamicTrailPct = 0.3;
+                dynamicTrailPct = trailingStopPct;
             }
             BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(dynamicTrailPct / 100));
 
