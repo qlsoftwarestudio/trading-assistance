@@ -57,7 +57,8 @@ public class AutoAdjustService {
         try {
             LocalDateTime since = LocalDateTime.now().minusDays(lookbackDays);
             String[] actions = {"LONG", "SHORT"};
-            String[] setups = {"Mean-Reversion", "Breakout", "Trend-Dip"};
+            String[] setups = {"Mean-Reversion", "Breakout", "Trend-Dip",
+                    "SCALP_INDUCTION", "SCALP_DIVERGENCE", "SCALP_MEAN_REVERSION", "SCALP_VWAP_BOUNCE", "SCALP_VWAP_REJECTION"};
 
             for (String action : actions) {
                 for (String setup : setups) {
@@ -100,7 +101,8 @@ public class AutoAdjustService {
     public Map<String, Object> getSetupStatus() {
         Map<String, Object> status = new ConcurrentHashMap<>();
         String[] actions = {"LONG", "SHORT"};
-        String[] setups = {"Mean-Reversion", "Breakout", "Trend-Dip"};
+        String[] setups = {"Mean-Reversion", "Breakout", "Trend-Dip",
+                "SCALP_INDUCTION", "SCALP_DIVERGENCE", "SCALP_MEAN_REVERSION", "SCALP_VWAP_BOUNCE", "SCALP_VWAP_REJECTION"};
 
         for (String action : actions) {
             for (String setup : setups) {

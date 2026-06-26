@@ -104,4 +104,17 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
 
     @Query("SELECT COALESCE(SUM(t.investedAmount), 0) FROM Trade t WHERE t.status = 'OPEN' AND t.userId = :userId")
     BigDecimal calculateTotalInvestedOpenByUserId(@Param("userId") Long userId);
+
+    // A/B symbol comparison queries
+    @Query("SELECT COUNT(t) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl > 0 AND t.symbol = :symbol AND t.userId = :userId")
+    Long countWinningTradesBySymbolAndUserId(@Param("symbol") String symbol, @Param("userId") Long userId);
+
+    @Query("SELECT COUNT(t) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl <= 0 AND t.symbol = :symbol AND t.userId = :userId")
+    Long countLosingTradesBySymbolAndUserId(@Param("symbol") String symbol, @Param("userId") Long userId);
+
+    @Query("SELECT COALESCE(SUM(t.pnl), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl > 0 AND t.symbol = :symbol AND t.userId = :userId")
+    BigDecimal calculateGrossProfitBySymbolAndUserId(@Param("symbol") String symbol, @Param("userId") Long userId);
+
+    @Query("SELECT COALESCE(SUM(ABS(t.pnl)), 0) FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl < 0 AND t.symbol = :symbol AND t.userId = :userId")
+    BigDecimal calculateGrossLossBySymbolAndUserId(@Param("symbol") String symbol, @Param("userId") Long userId);
 }

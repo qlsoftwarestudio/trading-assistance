@@ -4,7 +4,10 @@ import com.trading.assistant.notification.TelegramBot;
 import com.trading.assistant.portfolio.PortfolioService;
 import com.trading.assistant.portfolio.model.DailyMetrics;
 import com.trading.assistant.portfolio.model.Trade;
+import com.trading.assistant.portfolio.repository.RejectedSignalRepository;
+import com.trading.assistant.portfolio.repository.TradeJournalRepository;
 import com.trading.assistant.portfolio.repository.TradeRepository;
+import com.trading.assistant.strategy.AutoAdjustService;
 import com.trading.assistant.strategy.HypeStrategy;
 import com.trading.assistant.strategy.ScalpStrategy;
 import com.trading.assistant.strategy.backtest.BacktestResult;
@@ -53,6 +56,15 @@ public class DashboardController {
 
     @Autowired
     private JwtUtil jwtUtil;
+
+    @Autowired
+    private RejectedSignalRepository rejectedSignalRepository;
+
+    @Autowired
+    private TradeJournalRepository tradeJournalRepository;
+
+    @Autowired
+    private AutoAdjustService autoAdjustService;
 
     private Long getUserIdFromToken(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) return null;
@@ -171,6 +183,113 @@ public class DashboardController {
         if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
 
         return ResponseEntity.ok(portfolioService.getAllMetricsHistory(symbol, userId));
+    }
+
+    /**
+     * Get setup performance (hit rate per setup type) — Phase 3.2
+     */
+    @GetMapping("/dashboard/setup-performance")
+    @Operation(summary = "Setup performance", description = "Win rate, avg PnL, and trade count per setup type")
+    public ResponseEntity<?> getSetupPerformance(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                                  @RequestParam(defaultValue = "7") int days) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
+        java.time.LocalDateTime since = java.time.LocalDateTime.now().minusDays(days);
+        String[] setups = {"Mean-Reversion", "Breakout", "Trend-Dip",
+                "SCALP_INDUCTION", "SCALP_DIVERGENCE", "SCALP_MEAN_REVERSION", "SCALP_VWAP_BOUNCE", "SCALP_VWAP_REJECTION"};
+        String[] actions = {"LONG", "SHORT"};
+
+        List<Map<String, Object>> results = new java.util.ArrayList<>();
+        for (String setup : setups) {
+            for (String action : actions) {
+                Long total = tradeJournalRepository.countTotalBySetupTypeAndAction(setup, action, since);
+                if (total == null || total == 0) continue;
+                Long wins = tradeJournalRepository.countWinsBySetupTypeAndAction(setup, action, since);
+                java.math.BigDecimal avgPnl = tradeJournalRepository.avgPnlBySetupTypeAndAction(setup, action, since);
+                double winRate = total > 0 ? (double) wins / total : 0;
+
+                Map<String, Object> row = new HashMap<>();
+                row.put("setup", setup);
+                row.put("action", action);
+                row.put("totalTrades", total);
+                row.put("winningTrades", wins);
+                row.put("losingTrades", total - wins);
+                row.put("winRate", Math.round(winRate * 1000) / 10.0);
+                row.put("avgPnl", avgPnl != null ? avgPnl.doubleValue() : 0);
+                results.add(row);
+            }
+        }
+        return ResponseEntity.ok(results);
+    }
+
+    /**
+     * Get rejection heatmap — Phase 3.2
+     */
+    @GetMapping("/dashboard/rejection-heatmap")
+    @Operation(summary = "Rejection heatmap", description = "Count of rejected signals by reason (last N days)")
+    public ResponseEntity<?> getRejectionHeatmap(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                                  @RequestParam(defaultValue = "7") int days) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
+        java.time.LocalDateTime since = java.time.LocalDateTime.now().minusDays(days);
+        List<Object[]> raw = rejectedSignalRepository.countByRejectionReasonSince(since);
+
+        List<Map<String, Object>> results = new java.util.ArrayList<>();
+        long total = 0;
+        for (Object[] row : raw) {
+            long count = ((Number) row[1]).longValue();
+            total += count;
+        }
+        for (Object[] row : raw) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("reason", row[0]);
+            item.put("count", row[1]);
+            item.put("pct", total > 0 ? Math.round(((Number) row[1]).doubleValue() / total * 1000) / 10.0 : 0);
+            results.add(item);
+        }
+        return ResponseEntity.ok(results);
+    }
+
+    /**
+     * Get symbol comparison (A/B testing) — Phase 3.3
+     */
+    @GetMapping("/dashboard/symbol-comparison")
+    @Operation(summary = "Symbol comparison", description = "Compare performance metrics between symbols")
+    public ResponseEntity<?> getSymbolComparison(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
+        String[] symbols = {"HYPEUSDT", "SOLUSDT"};
+        List<Map<String, Object>> results = new java.util.ArrayList<>();
+
+        for (String sym : symbols) {
+            Long total = tradeRepository.countByUserIdAndSymbolAndStatus(userId, sym, "CLOSED");
+            Long wins = tradeRepository.countWinningTradesBySymbolAndUserId(sym, userId);
+            Long losses = tradeRepository.countLosingTradesBySymbolAndUserId(sym, userId);
+            java.math.BigDecimal totalPnl = tradeRepository.calculateTotalPnlBySymbolAndUserId(sym, userId);
+            java.math.BigDecimal grossProfit = tradeRepository.calculateGrossProfitBySymbolAndUserId(sym, userId);
+            java.math.BigDecimal grossLoss = tradeRepository.calculateGrossLossBySymbolAndUserId(sym, userId);
+
+            double winRate = total != null && total > 0 ? (double) wins / total * 100 : 0;
+            double profitFactor = grossLoss != null && grossLoss.compareTo(java.math.BigDecimal.ZERO) > 0
+                    ? grossProfit.divide(grossLoss, 4, java.math.RoundingMode.HALF_UP).doubleValue()
+                    : (grossProfit != null && grossProfit.compareTo(java.math.BigDecimal.ZERO) > 0 ? 999.99 : 0);
+
+            Map<String, Object> row = new HashMap<>();
+            row.put("symbol", sym);
+            row.put("totalTrades", total != null ? total : 0);
+            row.put("winningTrades", wins != null ? wins : 0);
+            row.put("losingTrades", losses != null ? losses : 0);
+            row.put("winRate", Math.round(winRate * 10) / 10.0);
+            row.put("totalPnl", totalPnl != null ? totalPnl.doubleValue() : 0);
+            row.put("profitFactor", Math.round(profitFactor * 100) / 100.0);
+            row.put("grossProfit", grossProfit != null ? grossProfit.doubleValue() : 0);
+            row.put("grossLoss", grossLoss != null ? grossLoss.doubleValue() : 0);
+            results.add(row);
+        }
+        return ResponseEntity.ok(results);
     }
 
     /**
