@@ -41,6 +41,9 @@ public class ScalpStrategy {
     @Autowired
     private MarketConditionGate marketConditionGate;
 
+    @Autowired
+    private com.trading.assistant.portfolio.repository.RejectedSignalRepository rejectedSignalRepository;
+
     @Value("${trading.strategy.hunter.mode-enabled:false}")
     private boolean hunterModeEnabled;
 
@@ -204,26 +207,28 @@ public class ScalpStrategy {
                     m5Bullish ? "BULL" : (m5Bearish ? "BEAR" : "N/A"), String.format("%.1f", stochKCurrent));
 
             // Evaluate scalp entries
-            evaluateScalpLongEntry(currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m, m5Bullish, stochKCurrent, stochKPrev3);
-            evaluateScalpShortEntry(currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m, m5Bearish, stochKCurrent, stochKPrev3);
+            evaluateScalpLongEntry(sym, currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m, m5Bullish, stochKCurrent, stochKPrev3);
+            evaluateScalpShortEntry(sym, currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m, m5Bearish, stochKCurrent, stochKPrev3);
 
         } catch (Exception e) {
             logger.error("Error executing scalp strategy: {}", e.getMessage(), e);
         }
     }
 
-    private void evaluateScalpLongEntry(BigDecimal currentPrice, double rsi, double previousRsi,
+    private void evaluateScalpLongEntry(String sym, BigDecimal currentPrice, double rsi, double previousRsi,
                                          double momentum, boolean inBuyZone, BigDecimal vwap,
                                          double vwapDistancePct, double ema, List<Kline> klines1m,
                                          boolean m5Bullish, double stochKCurrent, double stochKPrev3) {
         // Per-direction gate check
         if (!marketConditionGate.canScalp(klines1m, "LONG")) {
+            saveRejection(sym, "LONG", null, "MARKET_CONDITION_GATE", currentPrice, rsi, momentum, vwapDistancePct);
             return;
         }
 
         // M5 trend alignment: only LONG if price above EMA9(5m)
         if (m5TrendFilter && !m5Bullish) {
             logger.debug("No scalp LONG: M5 trend not bullish (price below EMA9_5m)");
+            saveRejection(sym, "LONG", null, "M5_TREND_FILTER", currentPrice, rsi, momentum, vwapDistancePct);
             return;
         }
 
@@ -263,21 +268,24 @@ public class ScalpStrategy {
             logger.debug("No scalp LONG. MeanRev(RSI<{}:{}, RevUp:{}, Mo>{}:{}), VwapBounce(inBuy:{}, nearVwap:{}, aboveEma:{}), Induction:{}, BullishDiv:{}",
                     rsiOversold, rsiOversoldMicro, rsiReversingUp, momentumThreshold, momentumPositive,
                     inBuyZone, nearVwap, aboveEma, inductionLong, bullishDiv);
+            saveRejection(sym, "LONG", null, "CONDITIONS_NOT_MET", currentPrice, rsi, momentum, vwapDistancePct);
         }
     }
 
-    private void evaluateScalpShortEntry(BigDecimal currentPrice, double rsi, double previousRsi,
+    private void evaluateScalpShortEntry(String sym, BigDecimal currentPrice, double rsi, double previousRsi,
                                           double momentum, boolean inSellZone, BigDecimal vwap,
                                           double vwapDistancePct, double ema, List<Kline> klines1m,
                                           boolean m5Bearish, double stochKCurrent, double stochKPrev3) {
         // Per-direction gate check
         if (!marketConditionGate.canScalp(klines1m, "SHORT")) {
+            saveRejection(sym, "SHORT", null, "MARKET_CONDITION_GATE", currentPrice, rsi, momentum, vwapDistancePct);
             return;
         }
 
         // M5 trend alignment: only SHORT if price below EMA9(5m)
         if (m5TrendFilter && !m5Bearish) {
             logger.debug("No scalp SHORT: M5 trend not bearish (price above EMA9_5m)");
+            saveRejection(sym, "SHORT", null, "M5_TREND_FILTER", currentPrice, rsi, momentum, vwapDistancePct);
             return;
         }
 
@@ -317,6 +325,7 @@ public class ScalpStrategy {
             logger.debug("No scalp SHORT. MeanRev(RSI>{}:{}, RevDown:{}, Mo<-{}:{}), VwapReject(inSell:{}, nearVwap:{}, belowEma:{}), Induction:{}, BearishDiv:{}",
                     rsiOverbought, rsiOverboughtMicro, rsiReversingDown, momentumThreshold, momentumNegative,
                     inSellZone, nearVwap, belowEma, inductionShort, bearishDiv);
+            saveRejection(sym, "SHORT", null, "CONDITIONS_NOT_MET", currentPrice, rsi, momentum, vwapDistancePct);
         }
     }
 
@@ -407,6 +416,20 @@ public class ScalpStrategy {
         }
         // Divergence: price higher high + stoch lower %K
         return recentHigh > olderHigh && stochKCurrent < stochKPrev3 - 5.0;
+    }
+
+    // Phase 3.1: Rejection tracking helper
+    private void saveRejection(String symbol, String action, String setupType, String reason,
+                               BigDecimal price, double rsi, double momentum, double vwapDist) {
+        try {
+            if (rejectedSignalRepository != null) {
+                rejectedSignalRepository.save(new com.trading.assistant.portfolio.model.RejectedSignal(
+                        symbol, action, "SCALP", setupType, reason,
+                        price, BigDecimal.valueOf(rsi), BigDecimal.valueOf(momentum), BigDecimal.valueOf(vwapDist)));
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to save scalp rejection: {}", e.getMessage());
+        }
     }
 
     public boolean isRunning() {

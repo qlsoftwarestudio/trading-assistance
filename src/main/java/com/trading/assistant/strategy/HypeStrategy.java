@@ -57,6 +57,9 @@ public class HypeStrategy {
     @Autowired
     private TelegramBot telegramBot;
 
+    @Autowired
+    private com.trading.assistant.portfolio.repository.RejectedSignalRepository rejectedSignalRepository;
+
     @Value("${trading.strategy.enabled:true}")
     private boolean strategyEnabled;
 
@@ -411,6 +414,8 @@ public class HypeStrategy {
             if (meanReversionCondition && relativeVolume < 0.5 && !volumeSpikeLong) {
                 logger.info("❌ LONG rejected: volume too low for mean-reversion ({}x, need >= 0.5x). RSI={}, no buying pressure.",
                         String.format("%.2f", relativeVolume), String.format("%.2f", rsi));
+                saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                        "VOLUME_LOW", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -430,6 +435,8 @@ public class HypeStrategy {
                                 String.format("%.1f", stochK5m), stochOversoldThreshold, String.format("%.2f", lowerBandGap));
                     } else {
                         logger.info("❌ LONG rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", upper));
+                        saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                                "VWAP_FILTER", currentPrice, rsi, momentum, Math.abs(price - vwapVal) / vwapVal * 100.0);
                         return;
                     }
                 }
@@ -439,6 +446,8 @@ public class HypeStrategy {
             // Exception: skip EMA filter when RSI is extremely oversold (< emaExtremeRsiThreshold)
             if (useEmaFilter && ema9 > 0 && !extremeOversold && currentPrice.doubleValue() <= ema9) {
                 logger.info("❌ LONG rejected: price {} below EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
+                saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                        "EMA_FILTER", currentPrice, rsi, momentum, 0.0);
                 return;
             }
             if (extremeOversold && currentPrice.doubleValue() <= ema9) {
@@ -450,6 +459,8 @@ public class HypeStrategy {
                 if (!ctx.supportsLong() && !volumeSpikeLong && !extremeOversold) {
                     logger.info("❌ LONG rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
                             ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
+                    saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                            "CONTEXT_FILTER", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
                 if ((volumeSpikeLong || extremeOversold) && !ctx.supportsLong()) {
@@ -458,10 +469,14 @@ public class HypeStrategy {
                 }
                 if (requireConfluence && !ctx.isConfluence()) {
                     logger.info("❌ LONG rejected: no trend confluence across timeframes");
+                    saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                            "NO_CONFLUENCE", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
                 if (requireVolume && !marketContextAnalyzer.hasEnoughVolume(ctx)) {
                     logger.info("❌ LONG rejected: volume too low (ratio={})", String.format("%.2f", ctx.getRelativeVolume()));
+                    saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                            "CONTEXT_VOLUME_LOW", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
             }
@@ -475,6 +490,7 @@ public class HypeStrategy {
             if (useDeltaVolumeFilter && !breakoutCondition && deltaVolumeRatio < deltaVolumeThreshold) {
                 logger.info("❌ LONG {} rejected: sell pressure dominant (delta ratio: {}, need > {}).",
                         entryType, String.format("%.2f", deltaVolumeRatio), String.format("%.2f", deltaVolumeThreshold));
+                saveRejection(sym, "LONG", entryType, "DELTA_VOLUME_FILTER", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -490,6 +506,7 @@ public class HypeStrategy {
                             String.format("%.1f", stochK5m), stochOversoldThreshold,
                             String.format("%.2f", lowerBandGap), bbProximityPct,
                             String.format("%.1f", stochK15m), stochOverboughtThreshold);
+                    saveRejection(sym, "LONG", entryType, "STOCH_BB_FILTER", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
                 logger.info("✅ Stoch+BB LONG confirmed: stochK5m={} lowerBandGap={}% stochK15m={}",
@@ -499,6 +516,7 @@ public class HypeStrategy {
             // Auto-adjust: skip if this setup has been disabled due to poor performance
             if (!autoAdjustService.isSetupEnabled("LONG", entryType)) {
                 logger.info("🚫 LONG {} entry blocked by auto-adjust (poor recent performance).", entryType);
+                saveRejection(sym, "LONG", entryType, "AUTO_ADJUST_BLOCKED", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -540,6 +558,7 @@ public class HypeStrategy {
                     } else {
                         logger.info("❌ LONG rejected: price at {}% of regression channel (upper zone, need <65%)",
                                 String.format("%.0f", channel.getPricePosition() * 100));
+                        saveRejection(sym, "LONG", entryType, "REGRESSION_FILTER", currentPrice, rsi, momentum, 0.0);
                         return;
                     }
                 }
@@ -556,6 +575,7 @@ public class HypeStrategy {
             if (channelDown && !extremeOversold) {
                 logger.info("❌ LONG rejected: channel strongly DOWN (slope: {}%), buying a crash is dangerous",
                         String.format("%.3f", channel.getSlopePct()));
+                saveRejection(sym, "LONG", entryType, "ANTI_CRASH_FILTER", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -563,6 +583,7 @@ public class HypeStrategy {
             if (trendDipCondition && ctx != null && ctx.getTrend1d() == MarketContext.TrendDirection.DOWN) {
                 logger.info("❌ LONG rejected: trend1d is DOWN, avoiding dip-buying in bearish daily (RSI: {})",
                         String.format("%.2f", rsi));
+                saveRejection(sym, "LONG", entryType, "TREND_DIP_DOWNTREND", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -625,6 +646,8 @@ public class HypeStrategy {
                 logger.info("❌ SHORT rejected: only {} strong conditions met in uptrend (need {}). RSI={}, Vol={}x",
                         strongConditions, shortMinConditionsUptrend,
                         String.format("%.2f", rsi), String.format("%.2f", relativeVolume));
+                saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                        "UPTREND_CONDITIONS", currentPrice, rsi, momentum, 0.0);
                 return;
             }
         }
@@ -639,6 +662,8 @@ public class HypeStrategy {
             if (meanReversionCondition && relativeVolume < 0.5 && !volumeSpikeShort) {
                 logger.info("❌ SHORT rejected: volume too low for mean-reversion ({}x, need >= 0.5x). RSI={}, no selling pressure.",
                         String.format("%.2f", relativeVolume), String.format("%.2f", rsi));
+                saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                        "VOLUME_LOW", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -648,6 +673,7 @@ public class HypeStrategy {
                     && channel.getSlopePct() >= antiPumpSlopeThreshold) {
                 logger.info("❌ SHORT rejected: channel strongly UP (slope: {}%), shorting a pump is dangerous",
                         String.format("%.3f", channel.getSlopePct()));
+                saveRejection(sym, "SHORT", "Mean-Reversion", "ANTI_PUMP_FILTER", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -659,6 +685,7 @@ public class HypeStrategy {
                     && currentPrice.compareTo(vwap) > 0) {
                 logger.info("❌ SHORT rejected: Mean-Rev but trend1h=UP and price {} > VWAP {} — avoid shorting a pump above VWAP",
                         String.format("%.4f", currentPrice.doubleValue()), String.format("%.4f", vwap.doubleValue()));
+                saveRejection(sym, "SHORT", "Mean-Reversion", "TREND1H_MEANREV_FILTER", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -678,6 +705,8 @@ public class HypeStrategy {
                                 String.format("%.1f", stochK5m), stochOverboughtThreshold, String.format("%.2f", upperBandGap));
                     } else {
                         logger.info("❌ SHORT rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", upper));
+                        saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                                "VWAP_FILTER", currentPrice, rsi, momentum, Math.abs(price - vwapVal) / vwapVal * 100.0);
                         return;
                     }
                 }
@@ -687,6 +716,8 @@ public class HypeStrategy {
             // Exception: skip EMA filter when RSI is extremely overbought (> 100 - emaExtremeRsiThreshold)
             if (useEmaFilter && ema9 > 0 && !extremeOverbought && currentPrice.doubleValue() <= ema9) {
                 logger.info("❌ SHORT rejected: price {} below EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
+                saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                        "EMA_FILTER", currentPrice, rsi, momentum, 0.0);
                 return;
             }
             if (extremeOverbought && currentPrice.doubleValue() <= ema9) {
@@ -698,6 +729,8 @@ public class HypeStrategy {
                 if (!ctx.supportsShort() && !volumeSpikeShort) {
                     logger.info("❌ SHORT rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
                             ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
+                    saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                            "CONTEXT_FILTER", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
                 if (volumeSpikeShort && !ctx.supportsShort()) {
@@ -706,10 +739,14 @@ public class HypeStrategy {
                 }
                 if (requireConfluence && !ctx.isConfluence()) {
                     logger.info("❌ SHORT rejected: no trend confluence across timeframes");
+                    saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                            "NO_CONFLUENCE", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
                 if (requireVolume && !marketContextAnalyzer.hasEnoughVolume(ctx)) {
                     logger.info("❌ SHORT rejected: volume too low (ratio={})", String.format("%.2f", ctx.getRelativeVolume()));
+                    saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                            "CONTEXT_VOLUME_LOW", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
             }
@@ -718,6 +755,7 @@ public class HypeStrategy {
             if (trendDipShortCondition && ctx != null && ctx.getTrend1d() == MarketContext.TrendDirection.UP) {
                 logger.info("❌ SHORT rejected: trend1d is UP, avoiding shorting bounce in bullish daily (RSI: {})",
                         String.format("%.2f", rsi));
+                saveRejection(sym, "SHORT", "Trend-Dip", "TREND_DIP_UPTREND", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -730,6 +768,7 @@ public class HypeStrategy {
             if (useDeltaVolumeFilter && !breakoutCondition && deltaVolumeRatio > -deltaVolumeThreshold) {
                 logger.info("❌ SHORT {} rejected: buy pressure dominant (delta ratio: {}, need < -{}).",
                         entryType, String.format("%.2f", deltaVolumeRatio), String.format("%.2f", deltaVolumeThreshold));
+                saveRejection(sym, "SHORT", entryType, "DELTA_VOLUME_FILTER", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -745,6 +784,7 @@ public class HypeStrategy {
                             String.format("%.1f", stochK5m), stochOverboughtThreshold,
                             String.format("%.2f", upperBandGap), bbProximityPct,
                             String.format("%.1f", stochK15m), stochOversoldThreshold);
+                    saveRejection(sym, "SHORT", entryType, "STOCH_BB_FILTER", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
                 logger.info("✅ Stoch+BB SHORT confirmed: stochK5m={} upperBandGap={}% stochK15m={}",
@@ -754,6 +794,7 @@ public class HypeStrategy {
             // Auto-adjust: skip if this setup has been disabled due to poor performance
             if (!autoAdjustService.isSetupEnabled("SHORT", entryType)) {
                 logger.info("🚫 SHORT {} entry blocked by auto-adjust (poor recent performance).", entryType);
+                saveRejection(sym, "SHORT", entryType, "AUTO_ADJUST_BLOCKED", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -795,6 +836,7 @@ public class HypeStrategy {
                     } else {
                         logger.info("❌ SHORT rejected: price at {}% of regression channel (lower zone, need >35%)",
                                 String.format("%.0f", channel.getPricePosition() * 100));
+                        saveRejection(sym, "SHORT", entryType, "REGRESSION_FILTER", currentPrice, rsi, momentum, 0.0);
                         return;
                     }
                 }
@@ -930,6 +972,20 @@ public class HypeStrategy {
 
     public boolean isSymbolEnabled(String sym) {
         return !disabledSymbols.contains(sym);
+    }
+
+    // Phase 3.1: Rejection tracking helper
+    private void saveRejection(String symbol, String action, String setupType, String reason,
+                               BigDecimal price, double rsi, double momentum, double vwapDist) {
+        try {
+            if (rejectedSignalRepository != null) {
+                rejectedSignalRepository.save(new com.trading.assistant.portfolio.model.RejectedSignal(
+                        symbol, action, "HYPE", setupType, reason,
+                        price, BigDecimal.valueOf(rsi), BigDecimal.valueOf(momentum), BigDecimal.valueOf(vwapDist)));
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to save rejection: {}", e.getMessage());
+        }
     }
 
     public String getStrategyStatus() {

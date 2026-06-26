@@ -60,8 +60,25 @@ CREATE TABLE IF NOT EXISTS balance_history (
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Rejected signals tracking (Phase 3.1)
+CREATE TABLE IF NOT EXISTS rejected_signals (
+    id BIGSERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    action VARCHAR(10) NOT NULL,
+    strategy VARCHAR(20) NOT NULL,
+    setup_type VARCHAR(50),
+    rejection_reason VARCHAR(100) NOT NULL,
+    price DECIMAL(20, 8),
+    rsi DECIMAL(5, 2),
+    momentum DECIMAL(10, 4),
+    vwap_distance_pct DECIMAL(10, 4),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_trades_status ON trades(status);
 CREATE INDEX IF NOT EXISTS idx_trades_entry_time ON trades(entry_time);
 CREATE INDEX IF NOT EXISTS idx_signals_generated_at ON signals(generated_at);
 CREATE INDEX IF NOT EXISTS idx_balance_timestamp ON balance_history(timestamp);
+CREATE INDEX IF NOT EXISTS idx_rejected_signals_created_at ON rejected_signals(created_at);
+CREATE INDEX IF NOT EXISTS idx_rejected_signals_symbol ON rejected_signals(symbol);
