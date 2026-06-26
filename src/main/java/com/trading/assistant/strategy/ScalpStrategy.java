@@ -44,7 +44,7 @@ public class ScalpStrategy {
     @Autowired
     private com.trading.assistant.portfolio.repository.RejectedSignalRepository rejectedSignalRepository;
 
-    @Value("${trading.strategy.hunter.mode-enabled:false}")
+    @Value("${trading.strategy.hunter.mode-enabled:true}")
     private boolean hunterModeEnabled;
 
     private volatile boolean running = true;
@@ -123,17 +123,22 @@ public class ScalpStrategy {
     @Scheduled(fixedRate = 15000)
     public void executeScalpStrategy() {
         if (!hunterModeEnabled) {
-            logger.trace("Hunter mode disabled via config. Skipping scalp strategy.");
+            logger.debug("Hunter mode disabled via config. Skipping scalp strategy.");
             return;
         }
         if (!running) {
-            logger.trace("Hunter mode paused (toggle OFF). Skipping scalp strategy.");
+            logger.debug("Hunter mode paused (toggle OFF). Skipping scalp strategy.");
             return;
         }
 
         // Killzone filter: only trade during high-liquidity sessions
         if (killzoneEnabled && !isInKillzone()) {
-            logger.trace("🕒 Outside killzone. Skipping scalp.");
+            // Log every ~2 min to confirm hunter is alive without spamming
+            if (System.currentTimeMillis() % 120000 < 20000) {
+                logger.info("🕒 Outside killzone (UTC {}). Hunter waiting.", ZonedDateTime.now(ZoneOffset.UTC).getHour());
+            } else {
+                logger.debug("🕒 Outside killzone. Skipping scalp.");
+            }
             return;
         }
 
