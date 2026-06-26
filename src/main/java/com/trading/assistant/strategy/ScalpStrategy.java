@@ -46,8 +46,12 @@ public class ScalpStrategy {
 
     private volatile boolean running = true;
 
-    @Value("${trading.strategy.symbol:HYPEUSDT}")
-    private String symbol;
+    @Value("${trading.strategy.symbols:HYPEUSDT}")
+    private String symbolsConfig;
+
+    private List<String> getSymbols() {
+        return java.util.Arrays.asList(symbolsConfig.split(","));
+    }
 
     @Value("${trading.strategy.hunter.rsi-oversold:25}")
     private double rsiOversold;
@@ -130,12 +134,18 @@ public class ScalpStrategy {
             return;
         }
 
-        logger.debug("🎯 Executing {} 1m SCALPING strategy...", symbol);
+        for (String sym : getSymbols()) {
+            executeScalpForSymbol(sym.trim());
+        }
+    }
+
+    private void executeScalpForSymbol(String sym) {
+        logger.debug("🎯 Executing {} 1m SCALPING strategy...", sym);
 
         try {
             // Fetch 1m klines (need enough for RSI, VWAP, EMA, Stoch)
             int minKlines = Math.max(lookbackBars + 30, stochPeriod + stochSmoothK + stochSmoothD + 10);
-            List<Kline> klines1m = binanceClient.getKlines(symbol, "1m", minKlines);
+            List<Kline> klines1m = binanceClient.getKlines(sym, "1m", minKlines);
 
             if (klines1m == null || klines1m.size() < lookbackBars + 10) {
                 logger.warn("Insufficient 1m klines ({}). Skipping scalp.", klines1m == null ? 0 : klines1m.size());
@@ -179,7 +189,7 @@ public class ScalpStrategy {
             // M5 trend filter: fetch 5m klines and get EMA9
             double ema9_5m = 0.0;
             if (m5TrendFilter) {
-                List<Kline> klines5m = binanceClient.getKlines(symbol, "5m", 20);
+                List<Kline> klines5m = binanceClient.getKlines(sym, "5m", 20);
                 if (klines5m != null && klines5m.size() >= 9) {
                     ema9_5m = indicatorCalculator.calculateEMAFromKlines(klines5m, 9);
                 }
