@@ -381,9 +381,20 @@ public class HypeStrategy {
             tradeManager.updateTrailingAndTimeExit(sym, userId, currentPrice, currentKline, projection);
 
         } catch (Exception e) {
-            logger.error("Error executing strategy: {}", e.getMessage(), e);
-            telegramBot.sendAlert("⚠️ Error crítico en estrategia",
-                    "Error en HypeStrategy: " + e.getMessage() + "\n" + java.util.Arrays.toString(e.getStackTrace()).substring(0, Math.min(500, java.util.Arrays.toString(e.getStackTrace()).length())));
+            // Capture stack trace BEFORE touching any Spring beans (shutdown-safe)
+            String stackTrace = java.util.Arrays.toString(e.getStackTrace());
+            String safeStack = stackTrace.substring(0, Math.min(800, stackTrace.length()));
+            logger.error("Error executing strategy: {} | Stack: {}", e.getMessage(), safeStack);
+
+            // Guard: if Spring context is shutting down, skip Telegram to avoid bean-creation errors
+            try {
+                if (telegramBot != null) {
+                    telegramBot.sendAlert("⚠️ Error en HypeStrategy",
+                            "Error: " + e.getMessage() + "\n<code>" + safeStack + "</code>");
+                }
+            } catch (Exception te) {
+                logger.warn("Failed to send Telegram alert during error handling: {}", te.getMessage());
+            }
         }
     }
 
