@@ -103,7 +103,7 @@ public class HypeStrategy {
     @Value("${trading.strategy.take-profit-pct:1.2}")
     private double takeProfitPct;
 
-    @Value("${trading.strategy.max-concurrent-trades:2}")
+    @Value("${trading.strategy.max-concurrent-trades:1}")
     private int maxConcurrentTrades;
 
     @Value("${trading.strategy.max-hold-minutes:45}")
@@ -112,7 +112,7 @@ public class HypeStrategy {
     @Value("${trading.strategy.trailing-stop-pct:0.6}")
     private double trailingStopPct;
 
-    @Value("${trading.strategy.trailing-activation-pct:0.4}")
+    @Value("${trading.strategy.trailing-activation-pct:0.6}")
     private double trailingActivationPct;
 
     @Value("${trading.context.enabled:true}")
