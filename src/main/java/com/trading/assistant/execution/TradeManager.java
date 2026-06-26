@@ -859,6 +859,8 @@ public class TradeManager {
         for (Trade trade : openTrades) {
             // Safety: ensure conditional orders exist on Binance (handles testnet fallback delays or failures)
             ensureConditionalOrders(trade);
+            // Extra safety: also check SL/TP locally using the already-fetched price (fallback if monitor/WS fail)
+            checkPriceAgainstSLTP(trade, currentPrice);
             updateTrailingStop(trade, currentPrice, currentKline, projection);
             checkMomentumExit(trade, currentPrice, currentKline);
             checkTimeExit(trade, currentPrice);
@@ -875,6 +877,7 @@ public class TradeManager {
         try {
             List<Trade> openTrades = tradeRepository.findByStatusOrderByEntryTimeDesc("OPEN");
             if (openTrades == null || openTrades.isEmpty()) return;
+            logger.info("🔍 monitorOpenTradesSLTP running for {} open trade(s)", openTrades.size());
             // Get price per symbol — each trade symbol may differ
             Map<String, BigDecimal> priceCache = new ConcurrentHashMap<>();
             for (Trade trade : openTrades) {
@@ -882,10 +885,12 @@ public class TradeManager {
                 BigDecimal price = priceCache.computeIfAbsent(sym, s -> binanceClient.getPrice(s));
                 if (price != null && price.compareTo(BigDecimal.ZERO) > 0) {
                     checkPriceAgainstSLTP(trade, price);
+                } else {
+                    logger.warn("Could not get price for {} in monitorOpenTradesSLTP", sym);
                 }
             }
         } catch (Exception e) {
-            logger.debug("Error in monitorOpenTradesSLTP: {}", e.getMessage());
+            logger.error("❌ Error in monitorOpenTradesSLTP: {}", e.getMessage(), e);
         }
     }
 
