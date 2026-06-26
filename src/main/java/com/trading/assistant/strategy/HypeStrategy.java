@@ -230,6 +230,29 @@ public class HypeStrategy {
     @Value("${trading.strategy.use-trend1h-mean-rev-filter:true}")
     private boolean useTrend1hMeanRevFilter;
 
+    // Balance filter: reject breakouts when market is consolidating (chop)
+    @Value("${trading.strategy.use-balance-filter:true}")
+    private boolean useBalanceFilter;
+
+    @Value("${trading.strategy.balance-lookback-short:20}")
+    private int balanceLookbackShort;
+
+    @Value("${trading.strategy.balance-lookback-long:50}")
+    private int balanceLookbackLong;
+
+    @Value("${trading.strategy.balance-atr-compression-ratio:0.30}")
+    private double balanceAtrCompressionRatio;
+
+    // Absorption filter: high volume + small candle range = institutional footprint
+    @Value("${trading.strategy.use-absorption-filter:false}")
+    private boolean useAbsorptionFilter;
+
+    @Value("${trading.strategy.absorption-volume-multiplier:2.0}")
+    private double absorptionVolumeMultiplier;
+
+    @Value("${trading.strategy.absorption-range-multiplier:0.3}")
+    private double absorptionRangeMultiplier;
+
     @Value("${trading.session-filter.enabled:true}")
     private boolean sessionFilterEnabled;
 
@@ -341,6 +364,20 @@ public class HypeStrategy {
 
             Kline currentKline = klines.get(klines.size() - 1);
 
+            // Balance filter: detect consolidation/chop (Fabio: 70% of time market is in balance)
+            boolean marketInBalance = false;
+            if (useBalanceFilter) {
+                marketInBalance = indicatorCalculator.isMarketInBalance(klines, balanceLookbackShort, balanceLookbackLong, balanceAtrCompressionRatio);
+                logger.info("📊 Market Balance (ATR{}/ATR{} < {}): {}", balanceLookbackShort, balanceLookbackLong, balanceAtrCompressionRatio, marketInBalance);
+            }
+
+            // Absorption filter: high volume + small range = institutional footprint
+            boolean absorptionDetected = false;
+            if (useAbsorptionFilter) {
+                absorptionDetected = indicatorCalculator.detectAbsorption(currentKline, klines, absorptionVolumeMultiplier, absorptionRangeMultiplier);
+                logger.info("📊 Absorption (vol>{}×avg, range<{}×ATR): {}", absorptionVolumeMultiplier, absorptionRangeMultiplier, absorptionDetected);
+            }
+
             // Estimate buy/sell pressure from current candle
             double deltaVolume = indicatorCalculator.estimateVolumeDelta(currentKline);
             double deltaVolumeRatio = 0;
@@ -374,8 +411,8 @@ public class HypeStrategy {
                         String.format("%.4f", bbUpper), String.format("%.4f", bbMid), String.format("%.4f", bbLower));
             }
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId);
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected);
 
             // Update trailing stops and time exits for open trades (data already fetched above)
             tradeManager.updateTrailingAndTimeExit(sym, userId, currentPrice, currentKline, projection);
@@ -398,7 +435,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId) {
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean extremeOversold = rsi < emaExtremeRsiThreshold;
@@ -414,6 +451,20 @@ public class HypeStrategy {
                 && channel.getSlopePct() >= trendDipChannelSlope
                 && channel.getPricePosition() < 0.40
                 && rsi < trendDipRsiThreshold;
+
+        // Balance filter: invalidate breakout when market is in consolidation/chop
+        if (useBalanceFilter && marketInBalance && breakoutCondition) {
+            logger.info("❌ LONG Breakout rejected: market in balance (consolidation/chop) — breakouts fail 70% of time here");
+            saveRejection(sym, "LONG", "Breakout", "BALANCE_FILTER", currentPrice, rsi, momentum, 0.0);
+            breakoutCondition = false;
+        }
+
+        // Absorption filter: for mean-reversion, require institutional footprint at key level
+        if (useAbsorptionFilter && meanReversionCondition && !absorptionDetected && !volumeSpikeLong && !extremeOversold) {
+            logger.info("❌ LONG Mean-Reversion rejected: no absorption detected at this level (vol not spiking with small range)");
+            saveRejection(sym, "LONG", "Mean-Reversion", "ABSORPTION_FILTER", currentPrice, rsi, momentum, 0.0);
+            meanReversionCondition = false;
+        }
 
         if (meanReversionCondition || breakoutCondition || trendDipCondition) {
             if (tradeManager.hasOpenPosition(sym, userId, "LONG")) {
@@ -620,7 +671,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId) {
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected) {
         boolean rsiReversingDown = rsi < previousRsi;
 
         // Dynamic RSI threshold: higher bar when shorting into strong uptrend
@@ -661,6 +712,20 @@ public class HypeStrategy {
                         "UPTREND_CONDITIONS", currentPrice, rsi, momentum, 0.0);
                 return;
             }
+        }
+
+        // Balance filter: invalidate breakout when market is in consolidation/chop
+        if (useBalanceFilter && marketInBalance && breakoutCondition) {
+            logger.info("❌ SHORT Breakout rejected: market in balance (consolidation/chop) — breakouts fail 70% of time here");
+            saveRejection(sym, "SHORT", "Breakout", "BALANCE_FILTER", currentPrice, rsi, momentum, 0.0);
+            breakoutCondition = false;
+        }
+
+        // Absorption filter: for mean-reversion, require institutional footprint at key level
+        if (useAbsorptionFilter && meanReversionCondition && !absorptionDetected && !volumeSpikeShort && !extremeOverbought) {
+            logger.info("❌ SHORT Mean-Reversion rejected: no absorption detected at this level (vol not spiking with small range)");
+            saveRejection(sym, "SHORT", "Mean-Reversion", "ABSORPTION_FILTER", currentPrice, rsi, momentum, 0.0);
+            meanReversionCondition = false;
         }
 
         if (meanReversionCondition || breakoutCondition || trendDipShortCondition) {

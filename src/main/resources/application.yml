@@ -172,6 +172,16 @@ trading:
     use-bb-based-sl: false           # Tighten SL to BB band when enabled
     bb-sl-buffer-pct: 0.1            # Buffer below BB lower (for LONG SL) as % of band price
 
+    # Balance filter: reject breakouts when market is in consolidation/chop (Fabio AMT)
+    use-balance-filter: true           # ON: invalidate breakouts in balance/chop
+    balance-lookback-short: 20          # Short ATR window (candles)
+    balance-lookback-long: 50           # Long ATR window (baseline)
+    balance-atr-compression-ratio: 0.30 # Short ATR / Long ATR < 0.30 = balance
+    # Absorption filter: high volume + small candle range = institutional footprint
+    use-absorption-filter: false         # OFF by default — experimental (requires volume spike + small range at key level)
+    absorption-volume-multiplier: 2.0    # Current volume must be > 2× average
+    absorption-range-multiplier: 0.3    # Candle range must be < 30% of recent ATR
+
   # Trading Session Filter (skip low-volume sessions) — disabled by default
   session-filter:
     enabled: false

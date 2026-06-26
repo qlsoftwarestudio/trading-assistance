@@ -739,4 +739,68 @@ public class IndicatorCalculator {
         if (band <= 0) return 999.0;
         return (price - band) / band * 100.0;
     }
+
+    /**
+     * Detects if the market is in balance (consolidation/chop).
+     * Compares short-period ATR vs long-period ATR.
+     * If short ATR / long ATR < compressionRatio, the market is compressing = balance.
+     *
+     * @param klines              full kline list (descending time or ascending — must be sorted by time ascending)
+     * @param shortPeriod         e.g. 20 candles (recent volatility window)
+     * @param longPeriod          e.g. 50 candles (baseline volatility window)
+     * @param compressionRatio    e.g. 0.30 → short ATR must be < 30% of long ATR
+     * @return true if market is in balance (chop / consolidation)
+     */
+    public boolean isMarketInBalance(List<Kline> klines, int shortPeriod, int longPeriod, double compressionRatio) {
+        if (klines == null || klines.size() < longPeriod + 1) {
+            return false; // Not enough data to judge
+        }
+        double shortATR = calculateATR(klines.subList(klines.size() - shortPeriod - 1, klines.size()), shortPeriod);
+        double longATR  = calculateATR(klines, longPeriod);
+        if (longATR <= 0) return false;
+        return (shortATR / longATR) < compressionRatio;
+    }
+
+    /**
+     * Detects absorption: high volume spike with small candle range.
+     * Indicates institutions accumulating/distributing at a key level before a move.
+     *
+     * Logic: volume > avgVolume × volumeMultiplier  AND  candleRange < ATR × rangeMultiplier
+     *
+     * @param currentKline        the most recent candle
+     * @param klines            recent history for volume average and ATR
+     * @param volumeMultiplier  e.g. 2.0 → volume must be 2× average
+     * @param rangeMultiplier   e.g. 0.3 → candle range must be < 30% of recent ATR
+     * @return true if absorption pattern detected
+     */
+    public boolean detectAbsorption(Kline currentKline, List<Kline> klines, double volumeMultiplier, double rangeMultiplier) {
+        if (currentKline == null || klines == null || klines.size() < 20) {
+            return false;
+        }
+        // Average volume of last 20 candles (excluding current)
+        double avgVolume = 0;
+        int count = Math.min(20, klines.size() - 1);
+        for (int i = klines.size() - count - 1; i < klines.size() - 1; i++) {
+            avgVolume += klines.get(i).getVolume().doubleValue();
+        }
+        avgVolume /= count;
+
+        double currentVolume = currentKline.getVolume().doubleValue();
+        if (avgVolume <= 0 || currentVolume <= 0) return false;
+
+        // Candle range
+        double candleRange = currentKline.getHigh().subtract(currentKline.getLow()).doubleValue();
+
+        // ATR of last 14 candles up to (but not including) current
+        int atrPeriod = 14;
+        if (klines.size() < atrPeriod + 2) return false;
+        List<Kline> atrKlines = klines.subList(klines.size() - atrPeriod - 2, klines.size() - 1);
+        double atr = calculateATR(atrKlines, atrPeriod);
+        if (atr <= 0) return false;
+
+        boolean volumeSpike = currentVolume > avgVolume * volumeMultiplier;
+        boolean smallRange  = candleRange < atr * rangeMultiplier;
+
+        return volumeSpike && smallRange;
+    }
 }
