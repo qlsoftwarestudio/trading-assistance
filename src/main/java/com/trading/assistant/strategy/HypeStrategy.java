@@ -224,6 +224,9 @@ public class HypeStrategy {
     @Value("${trading.strategy.short-min-conditions-uptrend:2}")
     private int shortMinConditionsUptrend;
 
+    @Value("${trading.strategy.use-trend1h-mean-rev-filter:true}")
+    private boolean useTrend1hMeanRevFilter;
+
     @Value("${trading.session-filter.enabled:true}")
     private boolean sessionFilterEnabled;
 
@@ -645,6 +648,17 @@ public class HypeStrategy {
                     && channel.getSlopePct() >= antiPumpSlopeThreshold) {
                 logger.info("❌ SHORT rejected: channel strongly UP (slope: {}%), shorting a pump is dangerous",
                         String.format("%.3f", channel.getSlopePct()));
+                return;
+            }
+
+            // 1h trend filter for Mean-Reversion SHORT:
+            // If 1h trend is UP and price is above VWAP, reject — shorting a pump above VWAP is too risky
+            if (useTrend1hMeanRevFilter && meanReversionCondition && !volumeSpikeShort
+                    && ctx != null && ctx.getTrend1h() == MarketContext.TrendDirection.UP
+                    && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0
+                    && currentPrice.compareTo(vwap) > 0) {
+                logger.info("❌ SHORT rejected: Mean-Rev but trend1h=UP and price {} > VWAP {} — avoid shorting a pump above VWAP",
+                        String.format("%.4f", currentPrice.doubleValue()), String.format("%.4f", vwap.doubleValue()));
                 return;
             }
 

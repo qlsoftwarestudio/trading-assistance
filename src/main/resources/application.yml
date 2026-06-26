@@ -66,7 +66,7 @@ trading:
     position-size-pct: 33.0
     leverage: 5
     enabled: true
-    max-concurrent-trades: 2
+    max-concurrent-trades: 1
     max-hold-minutes: 45
     require-rsi-reversal: true
     # Risk Management
@@ -91,9 +91,9 @@ trading:
     momentum-exit-drop-pct: 70.0
     momentum-exit-progress-threshold: 0.5
     momentum-exit-min-hold-minutes: 15
-    # Hunter / Scalping Mode (1m strategy) — DISABLED: testnet data is garbage, scalp loses 100%
+    # Hunter / Scalping Mode (1m strategy) — ENABLED: produccion, killzones + induction + stoch divergence + M5 filter
     hunter:
-      mode-enabled: false
+      mode-enabled: true
       min-volatility-pct: 1.0
       max-spread-pct: 5.0
       min-volume-ratio: 0.5
@@ -110,6 +110,22 @@ trading:
       vwap-period: 14
       ema-period: 9
       lookback: 20
+      # Killzone: only trade during high-liquidity sessions (UTC)
+      killzone-enabled: true
+      killzone-london-start: 7
+      killzone-london-end: 10
+      killzone-ny-start: 12
+      killzone-ny-end: 15
+      # M5 trend alignment filter
+      m5-trend-filter: true
+      # Induction (stop-hunt sweep detection)
+      induction-enabled: true
+      induction-lookback: 3
+      # Stochastic divergence on M1
+      stoch-divergence-enabled: true
+      stoch-period: 14
+      stoch-smooth-k: 3
+      stoch-smooth-d: 3
     # Auto-adjust: disable setups with poor performance automatically
     auto-adjust-enabled: true
     auto-adjust-min-trades: 20
@@ -141,6 +157,8 @@ trading:
     rsi-overbought-uptrend: 85
     short-min-volume-uptrend: 2.0
     short-min-conditions-uptrend: 2
+    # 1h trend filter: reject Mean-Rev SHORT when trend1h=UP and price above VWAP
+    use-trend1h-mean-rev-filter: true
     # Stochastic + Bollinger Bands confirmation filter
     use-stoch-bb-filter: true        # ON: entries only near BB bands + stoch confirmation
     stoch-period: 14                 # Stochastic lookback period (standard: 14)

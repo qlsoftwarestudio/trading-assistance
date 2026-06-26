@@ -12,6 +12,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.List;
 
 /**
@@ -71,6 +73,42 @@ public class ScalpStrategy {
     @Value("${trading.strategy.hunter.lookback:20}")
     private int lookbackBars;
 
+    @Value("${trading.strategy.hunter.killzone-enabled:true}")
+    private boolean killzoneEnabled;
+
+    @Value("${trading.strategy.hunter.killzone-london-start:7}")
+    private int killzoneLondonStart;
+
+    @Value("${trading.strategy.hunter.killzone-london-end:10}")
+    private int killzoneLondonEnd;
+
+    @Value("${trading.strategy.hunter.killzone-ny-start:12}")
+    private int killzoneNyStart;
+
+    @Value("${trading.strategy.hunter.killzone-ny-end:15}")
+    private int killzoneNyEnd;
+
+    @Value("${trading.strategy.hunter.m5-trend-filter:true}")
+    private boolean m5TrendFilter;
+
+    @Value("${trading.strategy.hunter.induction-enabled:true}")
+    private boolean inductionEnabled;
+
+    @Value("${trading.strategy.hunter.induction-lookback:3}")
+    private int inductionLookback;
+
+    @Value("${trading.strategy.hunter.stoch-divergence-enabled:true}")
+    private boolean stochDivergenceEnabled;
+
+    @Value("${trading.strategy.hunter.stoch-period:14}")
+    private int stochPeriod;
+
+    @Value("${trading.strategy.hunter.stoch-smooth-k:3}")
+    private int stochSmoothK;
+
+    @Value("${trading.strategy.hunter.stoch-smooth-d:3}")
+    private int stochSmoothD;
+
     /**
      * Execute scalp strategy every 15 seconds (4x per 1m candle).
      * Only runs if hunter mode is enabled and market conditions pass the gate.
@@ -86,11 +124,18 @@ public class ScalpStrategy {
             return;
         }
 
-        logger.debug("🎯 Executing HYPEUSDT 1m SCALPING strategy...");
+        // Killzone filter: only trade during high-liquidity sessions
+        if (killzoneEnabled && !isInKillzone()) {
+            logger.trace("🕒 Outside killzone. Skipping scalp.");
+            return;
+        }
+
+        logger.debug("🎯 Executing {} 1m SCALPING strategy...", symbol);
 
         try {
-            // Fetch 1m klines (need enough for RSI, VWAP, EMA, ATR)
-            List<Kline> klines1m = binanceClient.getKlines(symbol, "1m", lookbackBars + 30);
+            // Fetch 1m klines (need enough for RSI, VWAP, EMA, Stoch)
+            int minKlines = Math.max(lookbackBars + 30, stochPeriod + stochSmoothK + stochSmoothD + 10);
+            List<Kline> klines1m = binanceClient.getKlines(symbol, "1m", minKlines);
 
             if (klines1m == null || klines1m.size() < lookbackBars + 10) {
                 logger.warn("Insufficient 1m klines ({}). Skipping scalp.", klines1m == null ? 0 : klines1m.size());
@@ -99,7 +144,7 @@ public class ScalpStrategy {
 
             // Calculate 1m indicators
             BigDecimal currentPrice = indicatorCalculator.getCurrentPriceFromKlines(klines1m);
-            double rsi = indicatorCalculator.calculateRSIFromKlines(klines1m); // Uses last 5 closes
+            double rsi = indicatorCalculator.calculateRSIFromKlines(klines1m);
             double previousRsi = 50.0;
             if (klines1m.size() > 2) {
                 List<Kline> prevKlines = klines1m.subList(0, klines1m.size() - 1);
@@ -115,19 +160,42 @@ public class ScalpStrategy {
             BigDecimal vwap = indicatorCalculator.calculateVWAP(klines1m.subList(vwapFrom, klines1m.size()));
             double ema = indicatorCalculator.calculateEMAFromKlines(klines1m, emaPeriod);
 
-            // Distance to VWAP as %
             double vwapDistancePct = 0.0;
             if (vwap.compareTo(BigDecimal.ZERO) > 0) {
                 vwapDistancePct = Math.abs(currentPrice.subtract(vwap).doubleValue()) / vwap.doubleValue() * 100.0;
             }
 
-            logger.info("🎯 Scalp indicators (1m): Price={}, RSI={} (prev={}), Mo={}%, BuyZone={}, SellZone={}, VWAP={}, EMA={}, VWAPdist={}%",
-                    currentPrice, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
-                    String.format("%.3f", momentum), inBuyZone, inSellZone, vwap, ema, String.format("%.3f", vwapDistancePct));
+            // Stochastic on 1m for divergence detection
+            double[] stoch1m = indicatorCalculator.calculateStochastic(klines1m, stochPeriod, stochSmoothK, stochSmoothD);
+            double stochKCurrent = stoch1m[0];
+            double stochKPrev3 = 50.0;
+            int minForStochPrev = stochPeriod + stochSmoothK + stochSmoothD + 3;
+            if (stochDivergenceEnabled && klines1m.size() > minForStochPrev + 3) {
+                double[] stochPrev = indicatorCalculator.calculateStochastic(
+                        klines1m.subList(0, klines1m.size() - 3), stochPeriod, stochSmoothK, stochSmoothD);
+                stochKPrev3 = stochPrev[0];
+            }
 
-            // Evaluate scalp entries — gate checks per-direction capacity
-            evaluateScalpLongEntry(currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m);
-            evaluateScalpShortEntry(currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m);
+            // M5 trend filter: fetch 5m klines and get EMA9
+            double ema9_5m = 0.0;
+            if (m5TrendFilter) {
+                List<Kline> klines5m = binanceClient.getKlines(symbol, "5m", 20);
+                if (klines5m != null && klines5m.size() >= 9) {
+                    ema9_5m = indicatorCalculator.calculateEMAFromKlines(klines5m, 9);
+                }
+            }
+            boolean m5Bullish = ema9_5m > 0 && currentPrice.doubleValue() > ema9_5m;
+            boolean m5Bearish = ema9_5m > 0 && currentPrice.doubleValue() < ema9_5m;
+
+            logger.info("🎯 Scalp 1m: Price={}, RSI={} (prev={}), Mo={}%, BuyZone={}, SellZone={}, VWAP={}, EMA9_5m={}, M5={}, Stoch%K={}",
+                    currentPrice, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
+                    String.format("%.3f", momentum), inBuyZone, inSellZone,
+                    String.format("%.4f", vwap), ema9_5m > 0 ? String.format("%.4f", ema9_5m) : "N/A",
+                    m5Bullish ? "BULL" : (m5Bearish ? "BEAR" : "N/A"), String.format("%.1f", stochKCurrent));
+
+            // Evaluate scalp entries
+            evaluateScalpLongEntry(currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m, m5Bullish, stochKCurrent, stochKPrev3);
+            evaluateScalpShortEntry(currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m, m5Bearish, stochKCurrent, stochKPrev3);
 
         } catch (Exception e) {
             logger.error("Error executing scalp strategy: {}", e.getMessage(), e);
@@ -136,9 +204,16 @@ public class ScalpStrategy {
 
     private void evaluateScalpLongEntry(BigDecimal currentPrice, double rsi, double previousRsi,
                                          double momentum, boolean inBuyZone, BigDecimal vwap,
-                                         double vwapDistancePct, double ema, List<Kline> klines1m) {
+                                         double vwapDistancePct, double ema, List<Kline> klines1m,
+                                         boolean m5Bullish, double stochKCurrent, double stochKPrev3) {
         // Per-direction gate check
         if (!marketConditionGate.canScalp(klines1m, "LONG")) {
+            return;
+        }
+
+        // M5 trend alignment: only LONG if price above EMA9(5m)
+        if (m5TrendFilter && !m5Bullish) {
+            logger.debug("No scalp LONG: M5 trend not bullish (price below EMA9_5m)");
             return;
         }
 
@@ -154,29 +229,45 @@ public class ScalpStrategy {
         boolean aboveEma = currentPrice.doubleValue() >= ema;
         // Condition 6: Volume spike
         double volRatio = indicatorCalculator.calculateRelativeVolume(klines1m, lookbackBars);
-        boolean volumeSpike = volRatio >= 1.5;
+
+        // Induction (WWA): swept lows = stop hunt below support, then bullish reversal candle
+        boolean inductionLong = inductionEnabled && hasLongInductionSignal(klines1m);
+
+        // Stochastic bullish divergence: price lower low but stoch %K higher — hidden buying
+        boolean bullishDiv = stochDivergenceEnabled && hasBullishDivergence(klines1m, stochKCurrent, stochKPrev3);
 
         boolean meanRevLong = rsiOversoldMicro && rsiReversingUp && momentumPositive;
         boolean vwapBounce = inBuyZone && nearVwap && momentumPositive && aboveEma;
 
-        if (meanRevLong || vwapBounce) {
-            String entryType = meanRevLong ? "SCALP_MEAN_REVERSION" : "SCALP_VWAP_BOUNCE";
-            logger.info("🟢 SCALP LONG signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x",
+        if (meanRevLong || vwapBounce || inductionLong || bullishDiv) {
+            String entryType;
+            if (inductionLong) entryType = "SCALP_INDUCTION";
+            else if (bullishDiv) entryType = "SCALP_DIVERGENCE";
+            else if (meanRevLong) entryType = "SCALP_MEAN_REVERSION";
+            else entryType = "SCALP_VWAP_BOUNCE";
+            logger.info("🟢 SCALP LONG signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x, induction={}, bullishDiv={}",
                     entryType, String.format("%.2f", previousRsi), String.format("%.2f", rsi),
-                    String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio));
+                    String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio), inductionLong, bullishDiv);
             tradeManager.executeScalpLongEntry(currentPrice, entryType, rsi, momentum, volRatio);
         } else {
-            logger.debug("No scalp LONG. MeanRev(RSI<{}:{}, RevUp:{}, Mo>{}:{}), VwapBounce(inBuy:{}, nearVwap:{}, aboveEma:{}, vol>1.5:{})",
+            logger.debug("No scalp LONG. MeanRev(RSI<{}:{}, RevUp:{}, Mo>{}:{}), VwapBounce(inBuy:{}, nearVwap:{}, aboveEma:{}), Induction:{}, BullishDiv:{}",
                     rsiOversold, rsiOversoldMicro, rsiReversingUp, momentumThreshold, momentumPositive,
-                    inBuyZone, nearVwap, aboveEma, volumeSpike);
+                    inBuyZone, nearVwap, aboveEma, inductionLong, bullishDiv);
         }
     }
 
     private void evaluateScalpShortEntry(BigDecimal currentPrice, double rsi, double previousRsi,
                                           double momentum, boolean inSellZone, BigDecimal vwap,
-                                          double vwapDistancePct, double ema, List<Kline> klines1m) {
+                                          double vwapDistancePct, double ema, List<Kline> klines1m,
+                                          boolean m5Bearish, double stochKCurrent, double stochKPrev3) {
         // Per-direction gate check
         if (!marketConditionGate.canScalp(klines1m, "SHORT")) {
+            return;
+        }
+
+        // M5 trend alignment: only SHORT if price below EMA9(5m)
+        if (m5TrendFilter && !m5Bearish) {
+            logger.debug("No scalp SHORT: M5 trend not bearish (price above EMA9_5m)");
             return;
         }
 
@@ -192,22 +283,120 @@ public class ScalpStrategy {
         boolean belowEma = currentPrice.doubleValue() <= ema;
         // Condition 6: Volume spike
         double volRatio = indicatorCalculator.calculateRelativeVolume(klines1m, lookbackBars);
-        boolean volumeSpike = volRatio >= 1.5;
+
+        // Induction (WWA): swept highs = stop hunt above resistance, then bearish reversal candle
+        boolean inductionShort = inductionEnabled && hasShortInductionSignal(klines1m);
+
+        // Stochastic bearish divergence: price higher high but stoch %K lower — hidden selling
+        boolean bearishDiv = stochDivergenceEnabled && hasBearishDivergence(klines1m, stochKCurrent, stochKPrev3);
 
         boolean meanRevShort = rsiOverboughtMicro && rsiReversingDown && momentumNegative;
         boolean vwapRejection = inSellZone && nearVwap && momentumNegative && belowEma;
 
-        if (meanRevShort || vwapRejection) {
-            String entryType = meanRevShort ? "SCALP_MEAN_REVERSION" : "SCALP_VWAP_REJECTION";
-            logger.info("🔴 SCALP SHORT signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x",
+        if (meanRevShort || vwapRejection || inductionShort || bearishDiv) {
+            String entryType;
+            if (inductionShort) entryType = "SCALP_INDUCTION";
+            else if (bearishDiv) entryType = "SCALP_DIVERGENCE";
+            else if (meanRevShort) entryType = "SCALP_MEAN_REVERSION";
+            else entryType = "SCALP_VWAP_REJECTION";
+            logger.info("🔴 SCALP SHORT signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x, induction={}, bearishDiv={}",
                     entryType, String.format("%.2f", previousRsi), String.format("%.2f", rsi),
-                    String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio));
+                    String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio), inductionShort, bearishDiv);
             tradeManager.executeScalpShortEntry(currentPrice, entryType, rsi, momentum, volRatio);
         } else {
-            logger.debug("No scalp SHORT. MeanRev(RSI>{}:{}, RevDown:{}, Mo<-{}:{}), VwapReject(inSell:{}, nearVwap:{}, belowEma:{}, vol>1.5:{})",
+            logger.debug("No scalp SHORT. MeanRev(RSI>{}:{}, RevDown:{}, Mo<-{}:{}), VwapReject(inSell:{}, nearVwap:{}, belowEma:{}), Induction:{}, BearishDiv:{}",
                     rsiOverbought, rsiOverboughtMicro, rsiReversingDown, momentumThreshold, momentumNegative,
-                    inSellZone, nearVwap, belowEma, volumeSpike);
+                    inSellZone, nearVwap, belowEma, inductionShort, bearishDiv);
         }
+    }
+
+    // ============ HELPER METHODS (WWA methodology) ============
+
+    /** Killzone: only trade during London (07-10 UTC) and NY (12-15 UTC) sessions */
+    private boolean isInKillzone() {
+        int hour = ZonedDateTime.now(ZoneOffset.UTC).getHour();
+        boolean london = hour >= killzoneLondonStart && hour < killzoneLondonEnd;
+        boolean ny     = hour >= killzoneNyStart     && hour < killzoneNyEnd;
+        return london || ny;
+    }
+
+    /**
+     * Long induction (WWA): last completed candle swept below recent lows (stop hunt)
+     * but closed back above as a bullish candle — high-probability LONG entry.
+     */
+    private boolean hasLongInductionSignal(List<Kline> klines) {
+        if (klines.size() < inductionLookback + 3) return false;
+        int lastIdx = klines.size() - 2; // last completed candle (not forming)
+        Kline last = klines.get(lastIdx);
+        double lastLow   = last.getLow().doubleValue();
+        double lastClose = last.getClose().doubleValue();
+        double lastOpen  = last.getOpen().doubleValue();
+        // Find lowest low in previous N candles
+        double prevLowest = Double.MAX_VALUE;
+        for (int i = lastIdx - inductionLookback; i < lastIdx; i++) {
+            if (i >= 0) prevLowest = Math.min(prevLowest, klines.get(i).getLow().doubleValue());
+        }
+        // Induction: swept below previous lows AND candle closed bullish
+        boolean sweptLows = lastLow < prevLowest;
+        boolean bullishClose = lastClose > lastOpen;
+        return sweptLows && bullishClose;
+    }
+
+    /**
+     * Short induction (WWA): last completed candle swept above recent highs (stop hunt)
+     * but closed back below as a bearish candle — high-probability SHORT entry.
+     */
+    private boolean hasShortInductionSignal(List<Kline> klines) {
+        if (klines.size() < inductionLookback + 3) return false;
+        int lastIdx = klines.size() - 2;
+        Kline last = klines.get(lastIdx);
+        double lastHigh  = last.getHigh().doubleValue();
+        double lastClose = last.getClose().doubleValue();
+        double lastOpen  = last.getOpen().doubleValue();
+        double prevHighest = Double.MIN_VALUE;
+        for (int i = lastIdx - inductionLookback; i < lastIdx; i++) {
+            if (i >= 0) prevHighest = Math.max(prevHighest, klines.get(i).getHigh().doubleValue());
+        }
+        boolean sweptHighs = lastHigh > prevHighest;
+        boolean bearishClose = lastClose < lastOpen;
+        return sweptHighs && bearishClose;
+    }
+
+    /**
+     * Bullish stochastic divergence: price making lower lows but %K making higher lows.
+     * Signals hidden buying pressure — support LONG entry.
+     */
+    private boolean hasBullishDivergence(List<Kline> klines, double stochKCurrent, double stochKPrev3) {
+        if (klines.size() < 8) return false;
+        // Recent low (last 3 candles vs 3 candles ago window)
+        double recentLow = Double.MAX_VALUE;
+        for (int i = klines.size() - 4; i < klines.size() - 1; i++) {
+            recentLow = Math.min(recentLow, klines.get(i).getLow().doubleValue());
+        }
+        double olderLow = Double.MAX_VALUE;
+        for (int i = klines.size() - 7; i < klines.size() - 4; i++) {
+            if (i >= 0) olderLow = Math.min(olderLow, klines.get(i).getLow().doubleValue());
+        }
+        // Divergence: price lower low + stoch higher %K
+        return recentLow < olderLow && stochKCurrent > stochKPrev3 + 5.0;
+    }
+
+    /**
+     * Bearish stochastic divergence: price making higher highs but %K making lower highs.
+     * Signals hidden selling pressure — support SHORT entry.
+     */
+    private boolean hasBearishDivergence(List<Kline> klines, double stochKCurrent, double stochKPrev3) {
+        if (klines.size() < 8) return false;
+        double recentHigh = Double.MIN_VALUE;
+        for (int i = klines.size() - 4; i < klines.size() - 1; i++) {
+            recentHigh = Math.max(recentHigh, klines.get(i).getHigh().doubleValue());
+        }
+        double olderHigh = Double.MIN_VALUE;
+        for (int i = klines.size() - 7; i < klines.size() - 4; i++) {
+            if (i >= 0) olderHigh = Math.max(olderHigh, klines.get(i).getHigh().doubleValue());
+        }
+        // Divergence: price higher high + stoch lower %K
+        return recentHigh > olderHigh && stochKCurrent < stochKPrev3 - 5.0;
     }
 
     public boolean isRunning() {
