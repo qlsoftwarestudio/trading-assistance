@@ -116,6 +116,29 @@ public class ScalpStrategy {
     @Value("${trading.strategy.hunter.stoch-smooth-d:3}")
     private int stochSmoothD;
 
+    // Balance filter for hunter: reject inductions in micro-chop (calibrated for 1m)
+    @Value("${trading.strategy.hunter.use-balance-filter:false}")
+    private boolean useHunterBalanceFilter;
+
+    @Value("${trading.strategy.hunter.balance-lookback-short:15}")
+    private int hunterBalanceLookbackShort;
+
+    @Value("${trading.strategy.hunter.balance-lookback-long:30}")
+    private int hunterBalanceLookbackLong;
+
+    @Value("${trading.strategy.hunter.balance-atr-compression-ratio:0.50}")
+    private double hunterBalanceAtrCompressionRatio;
+
+    // Absorption filter for hunter: require institutional footprint for mean-rev in balance
+    @Value("${trading.strategy.hunter.use-absorption-filter:false}")
+    private boolean useHunterAbsorptionFilter;
+
+    @Value("${trading.strategy.hunter.absorption-volume-multiplier:1.5}")
+    private double hunterAbsorptionVolumeMultiplier;
+
+    @Value("${trading.strategy.hunter.absorption-range-multiplier:0.5}")
+    private double hunterAbsorptionRangeMultiplier;
+
     /**
      * Execute scalp strategy every 15 seconds (4x per 1m candle).
      * Only runs if hunter mode is enabled and market conditions pass the gate.
@@ -211,9 +234,25 @@ public class ScalpStrategy {
                     String.format("%.4f", vwap), ema9_5m > 0 ? String.format("%.4f", ema9_5m) : "N/A",
                     m5Bullish ? "BULL" : (m5Bearish ? "BEAR" : "N/A"), String.format("%.1f", stochKCurrent));
 
+            Kline currentKline = klines1m.get(klines1m.size() - 1);
+
+            // Balance filter for hunter: detect micro-consolidation/chop on 1m
+            boolean marketInBalance = false;
+            if (useHunterBalanceFilter) {
+                marketInBalance = indicatorCalculator.isMarketInBalance(klines1m, hunterBalanceLookbackShort, hunterBalanceLookbackLong, hunterBalanceAtrCompressionRatio);
+                logger.info("🎯 Scalp Balance (ATR{}/ATR{} < {}): {}", hunterBalanceLookbackShort, hunterBalanceLookbackLong, hunterBalanceAtrCompressionRatio, marketInBalance);
+            }
+
+            // Absorption filter for hunter: institutional footprint on 1m
+            boolean absorptionDetected = false;
+            if (useHunterAbsorptionFilter) {
+                absorptionDetected = indicatorCalculator.detectAbsorption(currentKline, klines1m, hunterAbsorptionVolumeMultiplier, hunterAbsorptionRangeMultiplier);
+                logger.info("🎯 Scalp Absorption (vol>{}×avg, range<{}×ATR): {}", hunterAbsorptionVolumeMultiplier, hunterAbsorptionRangeMultiplier, absorptionDetected);
+            }
+
             // Evaluate scalp entries
-            evaluateScalpLongEntry(sym, currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m, m5Bullish, stochKCurrent, stochKPrev3);
-            evaluateScalpShortEntry(sym, currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m, m5Bearish, stochKCurrent, stochKPrev3);
+            evaluateScalpLongEntry(sym, currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m, m5Bullish, stochKCurrent, stochKPrev3, marketInBalance, absorptionDetected);
+            evaluateScalpShortEntry(sym, currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m, m5Bearish, stochKCurrent, stochKPrev3, marketInBalance, absorptionDetected);
 
         } catch (Exception e) {
             logger.error("Error executing scalp strategy: {}", e.getMessage(), e);
@@ -223,7 +262,8 @@ public class ScalpStrategy {
     private void evaluateScalpLongEntry(String sym, BigDecimal currentPrice, double rsi, double previousRsi,
                                          double momentum, boolean inBuyZone, BigDecimal vwap,
                                          double vwapDistancePct, double ema, List<Kline> klines1m,
-                                         boolean m5Bullish, double stochKCurrent, double stochKPrev3) {
+                                         boolean m5Bullish, double stochKCurrent, double stochKPrev3,
+                                         boolean marketInBalance, boolean absorptionDetected) {
         // Per-direction gate check
         if (!marketConditionGate.canScalp(klines1m, "LONG")) {
             saveRejection(sym, "LONG", null, "MARKET_CONDITION_GATE", currentPrice, rsi, momentum, vwapDistancePct);
@@ -259,6 +299,21 @@ public class ScalpStrategy {
         boolean meanRevLong = rsiOversoldMicro && rsiReversingUp && momentumPositive;
         boolean vwapBounce = inBuyZone && nearVwap && momentumPositive && aboveEma;
 
+        // Balance filter: in micro-chop, inductions (stop-hunt sweeps) are often false signals
+        if (useHunterBalanceFilter && marketInBalance && inductionLong) {
+            logger.info("❌ SCALP LONG Induction rejected: market in balance (micro-chop) — sweeps fail in chop");
+            saveRejection(sym, "LONG", "SCALP_INDUCTION", "BALANCE_FILTER", currentPrice, rsi, momentum, vwapDistancePct);
+            inductionLong = false;
+        }
+
+        // Absorption filter: in balance, mean-reversion needs institutional footprint at the level
+        if (useHunterAbsorptionFilter && marketInBalance && (meanRevLong || vwapBounce) && !absorptionDetected) {
+            logger.info("❌ SCALP LONG Mean-Rev/VWAP rejected: no absorption detected in balance (no institutional defense)");
+            saveRejection(sym, "LONG", "SCALP_MEAN_REVERSION", "ABSORPTION_FILTER", currentPrice, rsi, momentum, vwapDistancePct);
+            meanRevLong = false;
+            vwapBounce = false;
+        }
+
         if (meanRevLong || vwapBounce || inductionLong || bullishDiv) {
             String entryType;
             if (inductionLong) entryType = "SCALP_INDUCTION";
@@ -280,7 +335,8 @@ public class ScalpStrategy {
     private void evaluateScalpShortEntry(String sym, BigDecimal currentPrice, double rsi, double previousRsi,
                                           double momentum, boolean inSellZone, BigDecimal vwap,
                                           double vwapDistancePct, double ema, List<Kline> klines1m,
-                                          boolean m5Bearish, double stochKCurrent, double stochKPrev3) {
+                                          boolean m5Bearish, double stochKCurrent, double stochKPrev3,
+                                          boolean marketInBalance, boolean absorptionDetected) {
         // Per-direction gate check
         if (!marketConditionGate.canScalp(klines1m, "SHORT")) {
             saveRejection(sym, "SHORT", null, "MARKET_CONDITION_GATE", currentPrice, rsi, momentum, vwapDistancePct);
@@ -315,6 +371,21 @@ public class ScalpStrategy {
 
         boolean meanRevShort = rsiOverboughtMicro && rsiReversingDown && momentumNegative;
         boolean vwapRejection = inSellZone && nearVwap && momentumNegative && belowEma;
+
+        // Balance filter: in micro-chop, inductions (stop-hunt sweeps) are often false signals
+        if (useHunterBalanceFilter && marketInBalance && inductionShort) {
+            logger.info("❌ SCALP SHORT Induction rejected: market in balance (micro-chop) — sweeps fail in chop");
+            saveRejection(sym, "SHORT", "SCALP_INDUCTION", "BALANCE_FILTER", currentPrice, rsi, momentum, vwapDistancePct);
+            inductionShort = false;
+        }
+
+        // Absorption filter: in balance, mean-reversion needs institutional footprint at the level
+        if (useHunterAbsorptionFilter && marketInBalance && (meanRevShort || vwapRejection) && !absorptionDetected) {
+            logger.info("❌ SCALP SHORT Mean-Rev/VWAP rejected: no absorption detected in balance (no institutional defense)");
+            saveRejection(sym, "SHORT", "SCALP_MEAN_REVERSION", "ABSORPTION_FILTER", currentPrice, rsi, momentum, vwapDistancePct);
+            meanRevShort = false;
+            vwapRejection = false;
+        }
 
         if (meanRevShort || vwapRejection || inductionShort || bearishDiv) {
             String entryType;

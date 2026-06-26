@@ -126,6 +126,15 @@ trading:
       stoch-period: 14
       stoch-smooth-k: 3
       stoch-smooth-d: 3
+      # Balance filter for hunter (1m): reject inductions in micro-chop (calibrated for 1m)
+      use-balance-filter: false         # OFF by default — experimental for 1m
+      balance-lookback-short: 15         # Short ATR window (1m candles)
+      balance-lookback-long: 30          # Long ATR window (1m candles)
+      balance-atr-compression-ratio: 0.50 # Short/Long ATR < 0.50 = micro-consolidation
+      # Absorption filter for hunter (1m): require footprint for mean-rev in balance
+      use-absorption-filter: false       # OFF by default — experimental
+      absorption-volume-multiplier: 1.5  # Current volume > 1.5× average (easier on 1m)
+      absorption-range-multiplier: 0.5  # Candle range < 50% of recent ATR (more permissive)
     # Auto-adjust: disable setups with poor performance automatically
     auto-adjust-enabled: true
     auto-adjust-min-trades: 20
