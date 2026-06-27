@@ -70,8 +70,8 @@ trading:
     max-hold-minutes: 45
     require-rsi-reversal: true
     # Risk Management
-    use-atr-stop: false
-    symbol-risk-config: "HYPEUSDT:0.6:1.2,SOLUSDT:1.0:1.5"
+    use-atr-stop: true           # ENABLED: ATR-based SL with 2:1 auto TP
+    symbol-risk-config: "HYPEUSDT:0.6:1.2,SOLUSDT:2.5:5.0"  # Fallback: SL 2.5%, TP 5.0% (2:1 R:R)
     trailing-stop-pct: 0.6        # Legacy — swing now uses below
     trailing-activation-pct: 0.6  # Legacy — swing now uses below
     # Swing trailing (5m): wider trail to let trends run toward TP
@@ -159,8 +159,8 @@ trading:
     oversold-spike-volume-threshold: 2.0
     atr-period: 10
     projection-candles-ahead: 6
-    atr-multiplier: 0.8       # Reduced from 1.5 → 0.8: tighter SL for swing (was ~6%, now ~3.2%)
-    max-atr-sl-pct: 2.5
+    atr-multiplier: 6.0       # Tuned for ~2.5% SL on SOL 5m (ATR ~0.4% × 6 = 2.4%)
+    max-atr-sl-pct: 2.5       # Hard cap on ATR-based SL
     use-regression-filter: true
     regression-lookback: 50
     use-trend-dip-long: true
