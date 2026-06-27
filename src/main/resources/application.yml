@@ -135,6 +135,9 @@ trading:
       use-absorption-filter: false       # OFF by default — experimental
       absorption-volume-multiplier: 1.5  # Current volume > 1.5× average (easier on 1m)
       absorption-range-multiplier: 0.5  # Candle range < 50% of recent ATR (more permissive)
+      # Symbol-specific hunter config: SYMBOL:slPct:tpPct:rsiOversold:rsiOverbought:momentumThreshold:minVolumeRatio
+      # Example: HYPEUSDT:0.1:0.3:25:75:0.05:0.5,SOLUSDT:0.15:0.4:20:80:0.03:0.8
+      symbol-config: ""
     # Auto-adjust: disable setups with poor performance automatically
     auto-adjust-enabled: true
     auto-adjust-min-trades: 20

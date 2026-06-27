@@ -56,6 +56,49 @@ public class ScalpStrategy {
         return java.util.Arrays.asList(symbolsConfig.split(","));
     }
 
+    // Symbol-specific hunter config: SYMBOL:slPct:tpPct:rsiOversold:rsiOverbought:momentumThreshold:minVolumeRatio
+    @Value("${trading.strategy.hunter.symbol-config:}")
+    private String hunterSymbolConfig;
+
+    private final java.util.Map<String, HunterSymbolConfig> hunterSymbolConfigMap = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private void initHunterSymbolConfig() {
+        if (hunterSymbolConfig == null || hunterSymbolConfig.isBlank() || !hunterSymbolConfigMap.isEmpty()) return;
+        for (String part : hunterSymbolConfig.split(",")) {
+            String[] kv = part.trim().split(":");
+            if (kv.length >= 7) {
+                try {
+                    HunterSymbolConfig cfg = new HunterSymbolConfig();
+                    cfg.slPct = Double.parseDouble(kv[1]);
+                    cfg.tpPct = Double.parseDouble(kv[2]);
+                    cfg.rsiOversold = Double.parseDouble(kv[3]);
+                    cfg.rsiOverbought = Double.parseDouble(kv[4]);
+                    cfg.momentumThreshold = Double.parseDouble(kv[5]);
+                    cfg.minVolumeRatio = Double.parseDouble(kv[6]);
+                    hunterSymbolConfigMap.put(kv[0].trim(), cfg);
+                    logger.info("🎯 Hunter config loaded for {}: SL={}%, TP={}%, RSI({}/{}), Mo>={}, Vol>={}x",
+                            kv[0], cfg.slPct, cfg.tpPct, cfg.rsiOversold, cfg.rsiOverbought, cfg.momentumThreshold, cfg.minVolumeRatio);
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid hunter symbol config segment: {}", part);
+                }
+            }
+        }
+    }
+
+    private HunterSymbolConfig getHunterConfig(String symbol) {
+        initHunterSymbolConfig();
+        return hunterSymbolConfigMap.getOrDefault(symbol, null);
+    }
+
+    private static class HunterSymbolConfig {
+        double slPct;
+        double tpPct;
+        double rsiOversold;
+        double rsiOverbought;
+        double momentumThreshold;
+        double minVolumeRatio;
+    }
+
     @Value("${trading.strategy.hunter.rsi-oversold:25}")
     private double rsiOversold;
 
@@ -173,6 +216,13 @@ public class ScalpStrategy {
     private void executeScalpForSymbol(String sym) {
         logger.debug("🎯 Executing {} 1m SCALPING strategy...", sym);
 
+        // Symbol-specific config (fallback to global defaults)
+        HunterSymbolConfig cfg = getHunterConfig(sym);
+        double symRsiOversold = cfg != null ? cfg.rsiOversold : rsiOversold;
+        double symRsiOverbought = cfg != null ? cfg.rsiOverbought : rsiOverbought;
+        double symMomentumThreshold = cfg != null ? cfg.momentumThreshold : momentumThreshold;
+        double symMinVolumeRatio = cfg != null ? cfg.minVolumeRatio : 0.5; // default if no config
+
         try {
             // Fetch 1m klines (need enough for RSI, VWAP, EMA, Stoch)
             int minKlines = Math.max(lookbackBars + 30, stochPeriod + stochSmoothK + stochSmoothD + 10);
@@ -251,8 +301,8 @@ public class ScalpStrategy {
             }
 
             // Evaluate scalp entries
-            evaluateScalpLongEntry(sym, currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m, m5Bullish, stochKCurrent, stochKPrev3, marketInBalance, absorptionDetected);
-            evaluateScalpShortEntry(sym, currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m, m5Bearish, stochKCurrent, stochKPrev3, marketInBalance, absorptionDetected);
+            evaluateScalpLongEntry(sym, currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m, m5Bullish, stochKCurrent, stochKPrev3, marketInBalance, absorptionDetected, symRsiOversold, symRsiOverbought, symMomentumThreshold, symMinVolumeRatio);
+            evaluateScalpShortEntry(sym, currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m, m5Bearish, stochKCurrent, stochKPrev3, marketInBalance, absorptionDetected, symRsiOversold, symRsiOverbought, symMomentumThreshold, symMinVolumeRatio);
 
         } catch (Exception e) {
             logger.error("Error executing scalp strategy: {}", e.getMessage(), e);
@@ -263,7 +313,8 @@ public class ScalpStrategy {
                                          double momentum, boolean inBuyZone, BigDecimal vwap,
                                          double vwapDistancePct, double ema, List<Kline> klines1m,
                                          boolean m5Bullish, double stochKCurrent, double stochKPrev3,
-                                         boolean marketInBalance, boolean absorptionDetected) {
+                                         boolean marketInBalance, boolean absorptionDetected,
+                                         double symRsiOversold, double symRsiOverbought, double symMomentumThreshold, double symMinVolumeRatio) {
         // Per-direction gate check
         if (!marketConditionGate.canScalp(klines1m, "LONG")) {
             saveRejection(sym, "LONG", null, "MARKET_CONDITION_GATE", currentPrice, rsi, momentum, vwapDistancePct);
@@ -278,11 +329,11 @@ public class ScalpStrategy {
         }
 
         // Condition 1: RSI oversold micro
-        boolean rsiOversoldMicro = rsi <= rsiOversold;
+        boolean rsiOversoldMicro = rsi <= symRsiOversold;
         // Condition 2: RSI reversing up (current > previous)
         boolean rsiReversingUp = rsi > previousRsi;
         // Condition 3: Momentum positive (current candle closing up)
-        boolean momentumPositive = momentum >= momentumThreshold;
+        boolean momentumPositive = momentum >= symMomentumThreshold;
         // Condition 4: Price near VWAP (mean reversion target)
         boolean nearVwap = vwapDistancePct <= vwapProximityPct;
         // Condition 5: Price above EMA (micro trend aligned)
@@ -326,7 +377,7 @@ public class ScalpStrategy {
             tradeManager.executeScalpLongEntry(currentPrice, entryType, rsi, momentum, volRatio);
         } else {
             logger.debug("No scalp LONG. MeanRev(RSI<{}:{}, RevUp:{}, Mo>{}:{}), VwapBounce(inBuy:{}, nearVwap:{}, aboveEma:{}), Induction:{}, BullishDiv:{}",
-                    rsiOversold, rsiOversoldMicro, rsiReversingUp, momentumThreshold, momentumPositive,
+                    symRsiOversold, rsiOversoldMicro, rsiReversingUp, symMomentumThreshold, momentumPositive,
                     inBuyZone, nearVwap, aboveEma, inductionLong, bullishDiv);
             saveRejection(sym, "LONG", null, "CONDITIONS_NOT_MET", currentPrice, rsi, momentum, vwapDistancePct);
         }
@@ -336,7 +387,8 @@ public class ScalpStrategy {
                                           double momentum, boolean inSellZone, BigDecimal vwap,
                                           double vwapDistancePct, double ema, List<Kline> klines1m,
                                           boolean m5Bearish, double stochKCurrent, double stochKPrev3,
-                                          boolean marketInBalance, boolean absorptionDetected) {
+                                          boolean marketInBalance, boolean absorptionDetected,
+                                          double symRsiOversold, double symRsiOverbought, double symMomentumThreshold, double symMinVolumeRatio) {
         // Per-direction gate check
         if (!marketConditionGate.canScalp(klines1m, "SHORT")) {
             saveRejection(sym, "SHORT", null, "MARKET_CONDITION_GATE", currentPrice, rsi, momentum, vwapDistancePct);
@@ -351,11 +403,11 @@ public class ScalpStrategy {
         }
 
         // Condition 1: RSI overbought micro
-        boolean rsiOverboughtMicro = rsi >= rsiOverbought;
+        boolean rsiOverboughtMicro = rsi >= symRsiOverbought;
         // Condition 2: RSI reversing down
         boolean rsiReversingDown = rsi < previousRsi;
         // Condition 3: Momentum negative
-        boolean momentumNegative = momentum <= -momentumThreshold;
+        boolean momentumNegative = momentum <= -symMomentumThreshold;
         // Condition 4: Price near VWAP
         boolean nearVwap = vwapDistancePct <= vwapProximityPct;
         // Condition 5: Price below EMA (micro trend aligned)
@@ -399,7 +451,7 @@ public class ScalpStrategy {
             tradeManager.executeScalpShortEntry(currentPrice, entryType, rsi, momentum, volRatio);
         } else {
             logger.debug("No scalp SHORT. MeanRev(RSI>{}:{}, RevDown:{}, Mo<-{}:{}), VwapReject(inSell:{}, nearVwap:{}, belowEma:{}), Induction:{}, BearishDiv:{}",
-                    rsiOverbought, rsiOverboughtMicro, rsiReversingDown, momentumThreshold, momentumNegative,
+                    symRsiOverbought, rsiOverboughtMicro, rsiReversingDown, symMomentumThreshold, momentumNegative,
                     inSellZone, nearVwap, belowEma, inductionShort, bearishDiv);
             saveRejection(sym, "SHORT", null, "CONDITIONS_NOT_MET", currentPrice, rsi, momentum, vwapDistancePct);
         }

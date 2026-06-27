@@ -1071,10 +1071,16 @@ public class TradeManager {
         // Phase 2+3: Trailing stop
         if (favorableMove >= activationThreshold) {
             double dynamicTrailPct;
-            if (movePct >= 1.0) {
+            if (movePct >= 1.5) {
+                // Big move: very tight trail (0.15% or half of config)
                 dynamicTrailPct = Math.max(0.15, trailingStopPct / 2.0);
+            } else if (movePct >= 0.8) {
+                // Medium move: moderate trail (0.3%)
+                dynamicTrailPct = Math.max(0.30, trailingStopPct / 2.0);
             } else {
-                dynamicTrailPct = trailingStopPct;
+                // Small move: trail = 1/3 of move to lock at least 2/3 of profits
+                // e.g. move=0.6%, trail=0.20% → locks +0.40%
+                dynamicTrailPct = Math.max(trailingStopPct / 3.0, movePct * 0.35);
             }
             BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(dynamicTrailPct / 100));
 
