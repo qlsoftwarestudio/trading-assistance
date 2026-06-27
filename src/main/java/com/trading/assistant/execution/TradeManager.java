@@ -110,6 +110,14 @@ public class TradeManager {
             "ETHUSDT", 90
     );
 
+    // Swing trailing (5m strategy) — wider trail to let trends breathe
+    @Value("${trading.strategy.swing.trailing-stop-pct:1.5}")
+    private double swingTrailingStopPct;
+
+    @Value("${trading.strategy.swing.trailing-activation-pct:1.0}")
+    private double swingTrailingActivationPct;
+
+    // Legacy — kept for backward compat, not used for swing (swing uses above)
     @Value("${trading.strategy.trailing-stop-pct:0.6}")
     private double trailingStopPct;
 
@@ -997,7 +1005,9 @@ public class TradeManager {
         boolean isShort = "SHORT".equals(trade.getAction());
         LocalDateTime entryTime = trade.getEntryTime();
 
-        if (entryPrice == null || stopLoss == null || trailingStopPct <= 0) return;
+        double effectiveSwingTrail = swingTrailingStopPct > 0 ? swingTrailingStopPct : trailingStopPct;
+        double effectiveSwingActivation = swingTrailingActivationPct > 0 ? swingTrailingActivationPct : trailingActivationPct;
+        if (entryPrice == null || stopLoss == null || effectiveSwingTrail <= 0) return;
 
         // Detect scalp trades: setupType starts with SCALP_
         JournalEntryData journal = tradeJournalData.get(trade.getId());
@@ -1015,7 +1025,7 @@ public class TradeManager {
             double quickMove = isShort
                     ? entryPrice.doubleValue() - currentPeak.doubleValue()
                     : currentPeak.doubleValue() - entryPrice.doubleValue();
-            double activationAmt = entryPrice.doubleValue() * trailingActivationPct / 100.0;
+            double activationAmt = entryPrice.doubleValue() * effectiveSwingActivation / 100.0;
             if (quickMove < activationAmt) {
                 logger.debug("Trade {}: TP within ATR range, trailing not yet active — bypassed", trade.getId());
                 return;
@@ -1050,7 +1060,7 @@ public class TradeManager {
         double movePct = favorableMove / entryPrice.doubleValue() * 100.0;
 
         double breakevenThreshold = entryPrice.doubleValue() * breakevenActivationPct / 100.0;
-        double activationThreshold = entryPrice.doubleValue() * trailingActivationPct / 100.0;
+        double activationThreshold = entryPrice.doubleValue() * effectiveSwingActivation / 100.0;
 
         BigDecimal breakevenSL = isShort
                 ? entryPrice.multiply(BigDecimal.valueOf(1 - minProfitPct / 100.0)).setScale(8, RoundingMode.HALF_UP)
@@ -1073,14 +1083,14 @@ public class TradeManager {
             double dynamicTrailPct;
             if (movePct >= 1.5) {
                 // Big move: very tight trail (0.15% or half of config)
-                dynamicTrailPct = Math.max(0.15, trailingStopPct / 2.0);
+                dynamicTrailPct = Math.max(0.15, effectiveSwingTrail / 2.0);
             } else if (movePct >= 0.8) {
                 // Medium move: moderate trail (0.3%)
-                dynamicTrailPct = Math.max(0.30, trailingStopPct / 2.0);
+                dynamicTrailPct = Math.max(0.30, effectiveSwingTrail / 2.0);
             } else {
                 // Small move: trail = 1/3 of move to lock at least 2/3 of profits
                 // e.g. move=0.6%, trail=0.20% → locks +0.40%
-                dynamicTrailPct = Math.max(trailingStopPct / 3.0, movePct * 0.35);
+                dynamicTrailPct = Math.max(effectiveSwingTrail / 3.0, movePct * 0.35);
             }
             BigDecimal trailingDistance = peak.multiply(BigDecimal.valueOf(dynamicTrailPct / 100));
 
