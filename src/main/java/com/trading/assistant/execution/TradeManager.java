@@ -1493,20 +1493,30 @@ public class TradeManager {
             String tradeSymbol = trade.getSymbol() != null ? trade.getSymbol() : symbol;
             String[] botCreds = resolveBotCredentials(trade.getUserId(), tradeSymbol);
 
-            // Cancel remaining conditional orders
+            // Cancel remaining conditional orders (try bot first, fallback to global)
             if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().equals(trade.getBinanceOrderId())) {
+                boolean cancelled = false;
                 if (botCreds != null) {
-                    binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol);
-                } else {
-                    binanceClient.cancelOrder(trade.getStopLossOrderId());
+                    try { cancelled = binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
+                    catch (Exception e) {
+                        if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                            logger.warn("Bot cancel SL failed with 401 for Trade {}. Using global.", trade.getId());
+                        }
+                    }
                 }
+                if (!cancelled) binanceClient.cancelOrder(trade.getStopLossOrderId());
             }
             if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
+                boolean cancelled = false;
                 if (botCreds != null) {
-                    binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol);
-                } else {
-                    binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                    try { cancelled = binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
+                    catch (Exception e) {
+                        if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                            logger.warn("Bot cancel TP failed with 401 for Trade {}. Using global.", trade.getId());
+                        }
+                    }
                 }
+                if (!cancelled) binanceClient.cancelOrder(trade.getTakeProfitOrderId());
             }
 
             // Commission = round-trip taker fee on notional (0.05% entry + 0.05% exit = 0.10%)
@@ -1537,31 +1547,54 @@ public class TradeManager {
             String tradeSymbol = trade.getSymbol() != null ? trade.getSymbol() : symbol;
             String[] botCreds = resolveBotCredentials(trade.getUserId(), tradeSymbol);
 
-            // Cancel remaining conditional orders first (so Binance doesn't fire SL/TP after manual close)
+            // Cancel remaining conditional orders first (try bot first, fallback to global on 401)
             if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().equals(trade.getBinanceOrderId())) {
+                boolean cancelled = false;
                 if (botCreds != null) {
-                    binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol);
-                } else {
-                    binanceClient.cancelOrder(trade.getStopLossOrderId());
+                    try { cancelled = binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
+                    catch (Exception e) {
+                        if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                            logger.warn("Bot cancel SL failed with 401 for Trade {}. Using global.", trade.getId());
+                        }
+                    }
                 }
+                if (!cancelled) binanceClient.cancelOrder(trade.getStopLossOrderId());
             }
             if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
+                boolean cancelled = false;
                 if (botCreds != null) {
-                    binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol);
-                } else {
-                    binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                    try { cancelled = binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
+                    catch (Exception e) {
+                        if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                            logger.warn("Bot cancel TP failed with 401 for Trade {}. Using global.", trade.getId());
+                        }
+                    }
                 }
+                if (!cancelled) binanceClient.cancelOrder(trade.getTakeProfitOrderId());
             }
 
-            String orderId;
+            // Close position (try bot first, fallback to global on 401)
+            String orderId = null;
             if ("SHORT".equals(trade.getAction())) {
-                orderId = (botCreds != null)
-                        ? binanceClient.placeShortBuyOrderForBot(trade.getQuantity(), botCreds[0], botCreds[1], tradeSymbol)
-                        : binanceClient.placeShortBuyOrderForSymbol(tradeSymbol, trade.getQuantity());
+                if (botCreds != null) {
+                    try { orderId = binanceClient.placeShortBuyOrderForBot(trade.getQuantity(), botCreds[0], botCreds[1], tradeSymbol); }
+                    catch (Exception e) {
+                        if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                            logger.warn("Bot close SHORT failed with 401 for Trade {}. Using global.", trade.getId());
+                        }
+                    }
+                }
+                if (orderId == null) orderId = binanceClient.placeShortBuyOrderForSymbol(tradeSymbol, trade.getQuantity());
             } else {
-                orderId = (botCreds != null)
-                        ? binanceClient.placeSellOrderForBot(trade.getQuantity(), botCreds[0], botCreds[1], tradeSymbol)
-                        : binanceClient.placeSellOrderForSymbol(tradeSymbol, trade.getQuantity());
+                if (botCreds != null) {
+                    try { orderId = binanceClient.placeSellOrderForBot(trade.getQuantity(), botCreds[0], botCreds[1], tradeSymbol); }
+                    catch (Exception e) {
+                        if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                            logger.warn("Bot close LONG failed with 401 for Trade {}. Using global.", trade.getId());
+                        }
+                    }
+                }
+                if (orderId == null) orderId = binanceClient.placeSellOrderForSymbol(tradeSymbol, trade.getQuantity());
             }
 
             if (orderId == null) {
