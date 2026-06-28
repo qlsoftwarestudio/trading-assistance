@@ -300,9 +300,13 @@ public class ScalpStrategy {
                 logger.info("🎯 Scalp Absorption (vol>{}×avg, range<{}×ATR): {}", hunterAbsorptionVolumeMultiplier, hunterAbsorptionRangeMultiplier, absorptionDetected);
             }
 
-            // Evaluate scalp entries
-            evaluateScalpLongEntry(sym, currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m, m5Bullish, stochKCurrent, stochKPrev3, marketInBalance, absorptionDetected, symRsiOversold, symRsiOverbought, symMomentumThreshold, symMinVolumeRatio);
-            evaluateScalpShortEntry(sym, currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m, m5Bearish, stochKCurrent, stochKPrev3, marketInBalance, absorptionDetected, symRsiOversold, symRsiOverbought, symMomentumThreshold, symMinVolumeRatio);
+            // Calculate 1m ATR for volatility-based SL/TP
+            double atr1m = indicatorCalculator.calculateATR(klines1m, 14);
+            double atrPct = (atr1m / currentPrice.doubleValue()) * 100.0;
+
+            // Evaluate scalp entries — ATR-based SL/TP calibrated to 1m volatility
+            evaluateScalpLongEntry(sym, currentPrice, rsi, previousRsi, momentum, inBuyZone, vwap, vwapDistancePct, ema, klines1m, m5Bullish, stochKCurrent, stochKPrev3, marketInBalance, absorptionDetected, symRsiOversold, symRsiOverbought, symMomentumThreshold, symMinVolumeRatio, atr1m, atrPct);
+            evaluateScalpShortEntry(sym, currentPrice, rsi, previousRsi, momentum, inSellZone, vwap, vwapDistancePct, ema, klines1m, m5Bearish, stochKCurrent, stochKPrev3, marketInBalance, absorptionDetected, symRsiOversold, symRsiOverbought, symMomentumThreshold, symMinVolumeRatio, atr1m, atrPct);
 
         } catch (Exception e) {
             logger.error("Error executing scalp strategy: {}", e.getMessage(), e);
@@ -314,7 +318,8 @@ public class ScalpStrategy {
                                          double vwapDistancePct, double ema, List<Kline> klines1m,
                                          boolean m5Bullish, double stochKCurrent, double stochKPrev3,
                                          boolean marketInBalance, boolean absorptionDetected,
-                                         double symRsiOversold, double symRsiOverbought, double symMomentumThreshold, double symMinVolumeRatio) {
+                                         double symRsiOversold, double symRsiOverbought, double symMomentumThreshold, double symMinVolumeRatio,
+                                         double atr1m, double atrPct) {
         // Per-direction gate check
         if (!marketConditionGate.canScalp(klines1m, "LONG")) {
             saveRejection(sym, "LONG", null, "MARKET_CONDITION_GATE", currentPrice, rsi, momentum, vwapDistancePct);
@@ -365,19 +370,21 @@ public class ScalpStrategy {
             vwapBounce = false;
         }
 
-        if (meanRevLong || vwapBounce || inductionLong || bullishDiv) {
+        // All scalp signals must align with M5 trend — NO counter-trend trades
+        boolean longSignal = meanRevLong || vwapBounce || inductionLong || bullishDiv;
+        if (longSignal && m5Bullish) {
             String entryType;
             if (inductionLong) entryType = "SCALP_INDUCTION";
             else if (bullishDiv) entryType = "SCALP_DIVERGENCE";
             else if (meanRevLong) entryType = "SCALP_MEAN_REVERSION";
             else entryType = "SCALP_VWAP_BOUNCE";
-            logger.info("🟢 SCALP LONG signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x, induction={}, bullishDiv={}",
+            logger.info("🟢 SCALP LONG signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x, induction={}, bullishDiv={}, ATR1m={}%",
                     entryType, String.format("%.2f", previousRsi), String.format("%.2f", rsi),
-                    String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio), inductionLong, bullishDiv);
-            tradeManager.executeScalpLongEntry(sym, currentPrice, entryType, rsi, momentum, volRatio);
+                    String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio), inductionLong, bullishDiv, String.format("%.3f", atrPct));
+            tradeManager.executeScalpLongEntry(sym, currentPrice, entryType, rsi, momentum, volRatio, atr1m, atrPct);
         } else {
-            logger.debug("No scalp LONG. MeanRev(RSI<{}:{}, RevUp:{}, Mo>{}:{}), VwapBounce(inBuy:{}, nearVwap:{}, aboveEma:{}), Induction:{}, BullishDiv:{}",
-                    symRsiOversold, rsiOversoldMicro, rsiReversingUp, symMomentumThreshold, momentumPositive,
+            logger.debug("No scalp LONG (M5={}). MeanRev(RSI<{}:{}, RevUp:{}, Mo>{}:{}), VwapBounce(inBuy:{}, nearVwap:{}, aboveEma:{}), Induction:{}, BullishDiv:{}",
+                    m5Bullish, symRsiOversold, rsiOversoldMicro, rsiReversingUp, symMomentumThreshold, momentumPositive,
                     inBuyZone, nearVwap, aboveEma, inductionLong, bullishDiv);
             saveRejection(sym, "LONG", null, "CONDITIONS_NOT_MET", currentPrice, rsi, momentum, vwapDistancePct);
         }
@@ -388,7 +395,8 @@ public class ScalpStrategy {
                                           double vwapDistancePct, double ema, List<Kline> klines1m,
                                           boolean m5Bearish, double stochKCurrent, double stochKPrev3,
                                           boolean marketInBalance, boolean absorptionDetected,
-                                          double symRsiOversold, double symRsiOverbought, double symMomentumThreshold, double symMinVolumeRatio) {
+                                          double symRsiOversold, double symRsiOverbought, double symMomentumThreshold, double symMinVolumeRatio,
+                                          double atr1m, double atrPct) {
         // Per-direction gate check
         if (!marketConditionGate.canScalp(klines1m, "SHORT")) {
             saveRejection(sym, "SHORT", null, "MARKET_CONDITION_GATE", currentPrice, rsi, momentum, vwapDistancePct);
@@ -439,19 +447,21 @@ public class ScalpStrategy {
             vwapRejection = false;
         }
 
-        if (meanRevShort || vwapRejection || inductionShort || bearishDiv) {
+        // All scalp signals must align with M5 trend — NO counter-trend trades
+        boolean shortSignal = meanRevShort || vwapRejection || inductionShort || bearishDiv;
+        if (shortSignal && m5Bearish) {
             String entryType;
             if (inductionShort) entryType = "SCALP_INDUCTION";
             else if (bearishDiv) entryType = "SCALP_DIVERGENCE";
             else if (meanRevShort) entryType = "SCALP_MEAN_REVERSION";
             else entryType = "SCALP_VWAP_REJECTION";
-            logger.info("🔴 SCALP SHORT signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x, induction={}, bearishDiv={}",
+            logger.info("🔴 SCALP SHORT signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x, induction={}, bearishDiv={}, ATR1m={}%",
                     entryType, String.format("%.2f", previousRsi), String.format("%.2f", rsi),
-                    String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio), inductionShort, bearishDiv);
-            tradeManager.executeScalpShortEntry(sym, currentPrice, entryType, rsi, momentum, volRatio);
+                    String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio), inductionShort, bearishDiv, String.format("%.3f", atrPct));
+            tradeManager.executeScalpShortEntry(sym, currentPrice, entryType, rsi, momentum, volRatio, atr1m, atrPct);
         } else {
-            logger.debug("No scalp SHORT. MeanRev(RSI>{}:{}, RevDown:{}, Mo<-{}:{}), VwapReject(inSell:{}, nearVwap:{}, belowEma:{}), Induction:{}, BearishDiv:{}",
-                    symRsiOverbought, rsiOverboughtMicro, rsiReversingDown, symMomentumThreshold, momentumNegative,
+            logger.debug("No scalp SHORT (M5={}). MeanRev(RSI>{}:{}, RevDown:{}, Mo<-{}:{}), VwapReject(inSell:{}, nearVwap:{}, belowEma:{}), Induction:{}, BearishDiv:{}",
+                    m5Bearish, symRsiOverbought, rsiOverboughtMicro, rsiReversingDown, symMomentumThreshold, momentumNegative,
                     inSellZone, nearVwap, belowEma, inductionShort, bearishDiv);
             saveRejection(sym, "SHORT", null, "CONDITIONS_NOT_MET", currentPrice, rsi, momentum, vwapDistancePct);
         }

@@ -480,8 +480,8 @@ public class TradeManager {
      * Called from ScalpStrategy when 1m conditions are met.
      */
     public void executeScalpLongEntry(String tradeSymbol, BigDecimal currentPrice, String setupType,
-                                       double rsi, double momentum, double volRatio) {
-        executeScalpEntry(tradeSymbol, currentPrice, "LONG", setupType, rsi, momentum, volRatio,
+                                       double rsi, double momentum, double volRatio, double atr1m, double atrPct) {
+        executeScalpEntry(tradeSymbol, currentPrice, "LONG", setupType, rsi, momentum, volRatio, atr1m, atrPct,
                 qty -> binanceClient.placeBuyOrderForSymbol(tradeSymbol, qty));
     }
 
@@ -490,13 +490,13 @@ public class TradeManager {
      * Called from ScalpStrategy when 1m conditions are met.
      */
     public void executeScalpShortEntry(String tradeSymbol, BigDecimal currentPrice, String setupType,
-                                        double rsi, double momentum, double volRatio) {
-        executeScalpEntry(tradeSymbol, currentPrice, "SHORT", setupType, rsi, momentum, volRatio,
+                                        double rsi, double momentum, double volRatio, double atr1m, double atrPct) {
+        executeScalpEntry(tradeSymbol, currentPrice, "SHORT", setupType, rsi, momentum, volRatio, atr1m, atrPct,
                 qty -> binanceClient.placeShortSellOrderForSymbol(tradeSymbol, qty));
     }
 
     private void executeScalpEntry(String tradeSymbol, BigDecimal currentPrice, String action, String setupType,
-                                    double rsi, double momentum, double volRatio,
+                                    double rsi, double momentum, double volRatio, double atr1m, double atrPct,
                                     OrderPlacer orderPlacer) {
         try {
             BigDecimal balance = binanceClient.getBalance("USDT");
@@ -563,20 +563,24 @@ public class TradeManager {
                 return;
             }
 
-            // Fixed SL/TP for scalps (no ATR)
+            // ATR-based SL/TP for scalps — calibrated to 1m volatility
+            // SL = 2×ATR (gives trade room for 2 typical 1m candles against it)
+            // TP = 2×risk (2:1 R:R)
             boolean isLong = "LONG".equals(action);
             BigDecimal stopLoss;
             BigDecimal takeProfit;
+            double effectiveSlPct = Math.max(atrPct * 2.0, 0.15);  // min 0.15% floor
+            double effectiveTpPct = effectiveSlPct * 2.0;         // 2:1 R:R
             if (isLong) {
-                stopLoss = currentPrice.multiply(BigDecimal.valueOf(1 - hunterSlPct / 100)).setScale(8, RoundingMode.HALF_UP);
-                takeProfit = currentPrice.multiply(BigDecimal.valueOf(1 + hunterTpPct / 100)).setScale(8, RoundingMode.HALF_UP);
+                stopLoss = currentPrice.multiply(BigDecimal.valueOf(1 - effectiveSlPct / 100)).setScale(8, RoundingMode.HALF_UP);
+                takeProfit = currentPrice.multiply(BigDecimal.valueOf(1 + effectiveTpPct / 100)).setScale(8, RoundingMode.HALF_UP);
             } else {
-                stopLoss = currentPrice.multiply(BigDecimal.valueOf(1 + hunterSlPct / 100)).setScale(8, RoundingMode.HALF_UP);
-                takeProfit = currentPrice.multiply(BigDecimal.valueOf(1 - hunterTpPct / 100)).setScale(8, RoundingMode.HALF_UP);
+                stopLoss = currentPrice.multiply(BigDecimal.valueOf(1 + effectiveSlPct / 100)).setScale(8, RoundingMode.HALF_UP);
+                takeProfit = currentPrice.multiply(BigDecimal.valueOf(1 - effectiveTpPct / 100)).setScale(8, RoundingMode.HALF_UP);
             }
 
-            logger.info("🎯 Executing scalp {} entry for {} - Price: {}, Qty: {}, SL: {} ({}%), TP: {} ({}%)",
-                    action, tradeSymbol, currentPrice, quantity, stopLoss, hunterSlPct, takeProfit, hunterTpPct);
+            logger.info("🎯 Executing scalp {} entry for {} - Price: {}, Qty: {}, SL: {} (ATR={}%, eff={}%), TP: {} (2:1 R:R)",
+                    action, tradeSymbol, currentPrice, quantity, stopLoss, String.format("%.3f", atrPct), String.format("%.3f", effectiveSlPct), takeProfit);
 
             // Place market order
             String orderId = orderPlacer.place(quantity);
