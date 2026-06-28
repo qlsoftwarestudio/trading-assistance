@@ -224,26 +224,36 @@ public class TradeManager {
                 String[] botCreds = resolveBotCredentials(trade.getUserId(), tradeSymbol);
                 try {
                     if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().equals(trade.getBinanceOrderId())) {
-                        boolean ok = (botCreds != null)
-                                ? binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol)
-                                : binanceClient.cancelOrder(trade.getStopLossOrderId());
-                        if (ok) {
-                            trade.setStopLossOrderId(null);
-                            cleaned++;
+                        boolean ok = false;
+                        try {
+                            ok = (botCreds != null)
+                                    ? binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol)
+                                    : binanceClient.cancelOrder(trade.getStopLossOrderId());
+                        } catch (Exception ce) {
+                            // 401/404 means order doesn't exist or creds mismatch — treat as "already gone"
+                            logger.warn("Cleanup: could not cancel SL order {} for Trade {} ({}), treating as cleared",
+                                    trade.getStopLossOrderId(), trade.getId(), ce.getMessage());
                         }
+                        // Always clear from DB: if cancel succeeded OR failed (order already gone from Binance)
+                        trade.setStopLossOrderId(null);
+                        cleaned++;
                     }
                     if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
-                        boolean ok = (botCreds != null)
-                                ? binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol)
-                                : binanceClient.cancelOrder(trade.getTakeProfitOrderId());
-                        if (ok) {
-                            trade.setTakeProfitOrderId(null);
-                            cleaned++;
+                        boolean ok = false;
+                        try {
+                            ok = (botCreds != null)
+                                    ? binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol)
+                                    : binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                        } catch (Exception ce) {
+                            logger.warn("Cleanup: could not cancel TP order {} for Trade {} ({}), treating as cleared",
+                                    trade.getTakeProfitOrderId(), trade.getId(), ce.getMessage());
                         }
+                        trade.setTakeProfitOrderId(null);
+                        cleaned++;
                     }
                     tradeRepository.save(trade);
                 } catch (Exception ex) {
-                    logger.warn("Cleanup: failed to cancel orphaned order for closed Trade {}: {}", trade.getId(), ex.getMessage());
+                    logger.warn("Cleanup: failed to process closed Trade {}: {}", trade.getId(), ex.getMessage());
                 }
             }
             if (cleaned > 0) {
