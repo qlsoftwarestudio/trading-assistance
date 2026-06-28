@@ -45,7 +45,7 @@ public class DashboardController {
     @Autowired
     private HypeStrategy hypeStrategy;
 
-    @Autowired
+    @Autowired(required = false)
     private ScalpStrategy scalpStrategy;
 
     @Autowired
@@ -304,7 +304,7 @@ public class DashboardController {
                 "description", hypeStrategy.getStrategyStatus()
         ));
         status.put("hunter", Map.of(
-                "running", scalpStrategy.isRunning()
+                "running", scalpStrategy != null ? scalpStrategy.isRunning() : false
         ));
         status.put("timestamp", java.time.LocalDateTime.now().toString());
         return ResponseEntity.ok(status);
@@ -330,6 +330,13 @@ public class DashboardController {
     @PostMapping("/strategy/hunter/toggle")
     @Operation(summary = "Toggle hunter strategy", description = "Toggle hunter/scalp strategy ON/OFF")
     public ResponseEntity<Map<String, Object>> toggleHunterStrategy() {
+        if (scalpStrategy == null) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("hunterRunning", false);
+            response.put("message", "Hunter strategy is disabled via configuration");
+            response.put("timestamp", java.time.LocalDateTime.now().toString());
+            return ResponseEntity.ok(response);
+        }
         boolean nowRunning = scalpStrategy.toggle();
         Map<String, Object> response = new HashMap<>();
         response.put("hunterRunning", nowRunning);
