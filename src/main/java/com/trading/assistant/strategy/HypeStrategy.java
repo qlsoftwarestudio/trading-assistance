@@ -262,7 +262,7 @@ public class HypeStrategy {
     @Value("${trading.session-filter.asia-end:8}")
     private int asiaEndHour;
 
-    @Scheduled(fixedRate = 120000)
+    @Scheduled(fixedRate = 60000)
     public void executeStrategy() {
         if (!strategyEnabled) {
             logger.info("Strategy is disabled via config. Skipping execution.");

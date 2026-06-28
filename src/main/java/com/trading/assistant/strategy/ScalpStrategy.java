@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -25,6 +26,7 @@ import java.util.List;
  * Exit: tight SL/TP with ultra-fast trailing stop.
  */
 @Component
+@ConditionalOnProperty(name = "trading.strategy.hunter.mode-enabled", havingValue = "true", matchIfMissing = false)
 public class ScalpStrategy {
 
     private static final Logger logger = LoggerFactory.getLogger(ScalpStrategy.class);
