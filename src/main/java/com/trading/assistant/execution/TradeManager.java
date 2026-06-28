@@ -213,6 +213,47 @@ public class TradeManager {
         }
     }
 
+    @jakarta.annotation.PostConstruct
+    public void cleanupOrphanedConditionalOrders() {
+        try {
+            List<Trade> closedWithOrders = tradeRepository.findClosedTradesWithConditionalOrders();
+            if (closedWithOrders == null || closedWithOrders.isEmpty()) return;
+            int cleaned = 0;
+            for (Trade trade : closedWithOrders) {
+                String tradeSymbol = trade.getSymbol() != null ? trade.getSymbol() : symbol;
+                String[] botCreds = resolveBotCredentials(trade.getUserId(), tradeSymbol);
+                try {
+                    if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().equals(trade.getBinanceOrderId())) {
+                        boolean ok = (botCreds != null)
+                                ? binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol)
+                                : binanceClient.cancelOrder(trade.getStopLossOrderId());
+                        if (ok) {
+                            trade.setStopLossOrderId(null);
+                            cleaned++;
+                        }
+                    }
+                    if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
+                        boolean ok = (botCreds != null)
+                                ? binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol)
+                                : binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                        if (ok) {
+                            trade.setTakeProfitOrderId(null);
+                            cleaned++;
+                        }
+                    }
+                    tradeRepository.save(trade);
+                } catch (Exception ex) {
+                    logger.warn("Cleanup: failed to cancel orphaned order for closed Trade {}: {}", trade.getId(), ex.getMessage());
+                }
+            }
+            if (cleaned > 0) {
+                logger.info("🧹 Cleaned up {} orphaned conditional orders from {} closed trades", cleaned, closedWithOrders.size());
+            }
+        } catch (Exception e) {
+            logger.error("Error during orphaned order cleanup: {}", e.getMessage());
+        }
+    }
+
     /**
      * Per-symbol SL/TP override.
      */
@@ -1192,9 +1233,13 @@ public class TradeManager {
             boolean isLong = "LONG".equals(trade.getAction());
             String slSide = isLong ? "SELL" : "BUY";
             String positionSide = isLong ? "LONG" : "SHORT";
+            String tradeSymbol = trade.getSymbol() != null ? trade.getSymbol() : symbol;
+            String[] botCreds = resolveBotCredentials(trade.getUserId(), tradeSymbol);
 
             // 1. Place NEW SL order FIRST (never leave trade unprotected)
-            String newSlOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, trade.getQuantity(), trade.getStopLoss());
+            String newSlOrderId = (botCreds != null)
+                    ? binanceClient.placeStopLossOrderForBot(slSide, positionSide, trade.getQuantity(), trade.getStopLoss(), botCreds[0], botCreds[1], tradeSymbol)
+                    : binanceClient.placeStopLossOrder(slSide, positionSide, trade.getQuantity(), trade.getStopLoss());
             if (newSlOrderId != null) {
                 trade.setStopLossOrderId(newSlOrderId);
                 tradeRepository.save(trade);
@@ -1202,7 +1247,9 @@ public class TradeManager {
 
                 // 2. Only cancel OLD order after new one is confirmed
                 if (oldSlOrderId != null && !oldSlOrderId.isEmpty()) {
-                    boolean cancelled = binanceClient.cancelOrder(oldSlOrderId);
+                    boolean cancelled = (botCreds != null)
+                            ? binanceClient.cancelOrderForBot(oldSlOrderId, botCreds[0], botCreds[1], tradeSymbol)
+                            : binanceClient.cancelOrder(oldSlOrderId);
                     if (!cancelled) {
                         logger.warn("Failed to cancel old SL order {} for Trade {} — harmless, new SL is active", oldSlOrderId, trade.getId());
                     }

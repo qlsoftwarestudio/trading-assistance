@@ -65,6 +65,9 @@ public interface TradeRepository extends JpaRepository<Trade, Long> {
     @Query("SELECT t FROM Trade t WHERE t.status = 'CLOSED' AND t.pnl IS NOT NULL ORDER BY t.exitTime ASC")
     List<Trade> findClosedTradesOrderByExitTimeAsc();
 
+    @Query("SELECT t FROM Trade t WHERE t.status = 'CLOSED' AND (t.stopLossOrderId IS NOT NULL OR t.takeProfitOrderId IS NOT NULL)")
+    List<Trade> findClosedTradesWithConditionalOrders();
+
     long countByStatus(String status);
 
     long countBySymbolAndStatus(String symbol, String status);
