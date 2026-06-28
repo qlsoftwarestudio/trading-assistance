@@ -74,9 +74,9 @@ trading:
     symbol-risk-config: "HYPEUSDT:0.6:1.2,SOLUSDT:2.5:5.0"  # Fallback: SL 2.5%, TP 5.0% (2:1 R:R)
     trailing-stop-pct: 0.6        # Legacy — swing now uses below
     trailing-activation-pct: 0.6  # Legacy — swing now uses below
-    # Swing trailing (5m): wider trail to let trends run toward TP
-    swing-trailing-stop-pct: 1.5      # Trail distance for 5m swing (wider than hunter)
-    swing-trailing-activation-pct: 1.0  # Activate trailing at +1.0% (after breakeven at 0.4%)
+    # Swing trailing (5m): tight trail to capture profit when trade works
+    swing-trailing-stop-pct: 0.35     # Trail distance for 5m swing (tight to maximize captured profit)
+    swing-trailing-activation-pct: 0.6  # Activate trailing at +0.6% (after breakeven at 0.4%)
     breakeven-activation-pct: 0.4
     min-profit-pct: 0.15
     time-based-trail-pct: 0.5
