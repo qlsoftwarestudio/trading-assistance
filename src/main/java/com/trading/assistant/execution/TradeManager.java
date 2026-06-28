@@ -831,6 +831,19 @@ public class TradeManager {
             // Place order on Binance
             String orderId = orderPlacer.place(quantity);
 
+            // Fallback to global credentials if bot order failed with 401 (bot creds may be invalid for this symbol)
+            if (orderId == null && botCreds != null) {
+                logger.warn("Bot order placement failed for {}. Falling back to global credentials.", tradeSymbol);
+                if (isLong) {
+                    orderId = binanceClient.placeBuyOrder(quantity);
+                } else {
+                    orderId = binanceClient.placeShortSellOrder(quantity);
+                }
+                if (orderId != null) {
+                    usingBotCreds = false; // Ensure SL/TP also use global
+                }
+            }
+
             if (orderId != null) {
                 Trade trade = new Trade(
                         tradeSymbol,
@@ -877,10 +890,10 @@ public class TradeManager {
                 String tpSide = isLong ? "SELL" : "BUY";
                 String positionSide = isLong ? "LONG" : "SHORT";
 
-                String slOrderId = (botCreds != null)
+                String slOrderId = (usingBotCreds)
                         ? binanceClient.placeStopLossOrderForBot(slSide, positionSide, quantity, stopLoss, botCreds[0], botCreds[1], tradeSymbol)
                         : binanceClient.placeStopLossOrder(slSide, positionSide, quantity, stopLoss);
-                String tpOrderId = (botCreds != null)
+                String tpOrderId = (usingBotCreds)
                         ? binanceClient.placeTakeProfitOrderForBot(tpSide, positionSide, quantity, takeProfit, botCreds[0], botCreds[1], tradeSymbol)
                         : binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, takeProfit);
 
