@@ -16,10 +16,10 @@ public class IndicatorCalculator {
 
     /**
      * Calculate RSI (Relative Strength Index)
-     * Simplified calculation for 5-period RSI
+     * Configurable period RSI calculation (e.g., 7-period)
      */
-    public double calculateRSI(List<BigDecimal> closes) {
-        if (closes == null || closes.size() < 6) {
+    public double calculateRSI(List<BigDecimal> closes, int periods) {
+        if (closes == null || closes.size() < periods + 1) {
             return 50.0; // Neutral if not enough data
         }
 
@@ -38,8 +38,6 @@ public class IndicatorCalculator {
             }
         }
 
-        // Use last 5 periods for RSI calculation
-        int periods = 5;
         if (gains.size() < periods) {
             return 50.0;
         }
@@ -177,14 +175,14 @@ public class IndicatorCalculator {
     /**
      * Calculate RSI from Klines (using close prices)
      */
-    public double calculateRSIFromKlines(List<Kline> klines) {
-        if (klines == null || klines.size() < 6) {
+    public double calculateRSIFromKlines(List<Kline> klines, int periods) {
+        if (klines == null || klines.size() < periods + 1) {
             return 50.0;
         }
         List<BigDecimal> closes = klines.stream()
                 .map(Kline::getClose)
                 .collect(Collectors.toList());
-        return calculateRSI(closes);
+        return calculateRSI(closes, periods);
     }
 
     /**

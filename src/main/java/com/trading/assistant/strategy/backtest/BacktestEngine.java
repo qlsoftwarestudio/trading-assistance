@@ -105,7 +105,7 @@ public class BacktestEngine {
             // 3. Evaluate entry signals (only if no open position)
             if (position == null) {
                 BigDecimal currentPrice = current.getClose();
-                double rsi = calculator.calculateRSIFromKlines(window);
+                double rsi = calculator.calculateRSIFromKlines(window, params.rsiLength);
                 double sessionLow = calculator.calculateSessionLowFromKlines(window, params.lookbackBars);
                 double sessionHigh = calculator.calculateSessionHighFromKlines(window, params.lookbackBars);
                 double momentum = calculator.calculateMomentumFromKlines(window);

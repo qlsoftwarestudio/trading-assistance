@@ -316,11 +316,11 @@ public class HypeStrategy {
             }
 
             BigDecimal currentPrice = indicatorCalculator.getCurrentPriceFromKlines(klines);
-            double rsi = indicatorCalculator.calculateRSIFromKlines(klines);
+            double rsi = indicatorCalculator.calculateRSIFromKlines(klines, rsiLength);
             double previousRsi = 50.0;
             if (klines.size() > 1) {
                 List<Kline> prevKlines = klines.subList(0, klines.size() - 1);
-                previousRsi = indicatorCalculator.calculateRSIFromKlines(prevKlines);
+                previousRsi = indicatorCalculator.calculateRSIFromKlines(prevKlines, rsiLength);
             }
             double sessionLow = indicatorCalculator.calculateSessionLowFromKlines(klines, lookbackBars);
             double sessionHigh = indicatorCalculator.calculateSessionHighFromKlines(klines, lookbackBars);

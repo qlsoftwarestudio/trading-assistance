@@ -235,11 +235,11 @@ public class ScalpStrategy {
 
             // Calculate 1m indicators
             BigDecimal currentPrice = indicatorCalculator.getCurrentPriceFromKlines(klines1m);
-            double rsi = indicatorCalculator.calculateRSIFromKlines(klines1m);
+            double rsi = indicatorCalculator.calculateRSIFromKlines(klines1m, rsiPeriod);
             double previousRsi = 50.0;
             if (klines1m.size() > 2) {
                 List<Kline> prevKlines = klines1m.subList(0, klines1m.size() - 1);
-                previousRsi = indicatorCalculator.calculateRSIFromKlines(prevKlines);
+                previousRsi = indicatorCalculator.calculateRSIFromKlines(prevKlines, rsiPeriod);
             }
             double momentum = indicatorCalculator.calculateMomentumFromKlines(klines1m);
             double sessionLow = indicatorCalculator.calculateSessionLowFromKlines(klines1m, lookbackBars);
