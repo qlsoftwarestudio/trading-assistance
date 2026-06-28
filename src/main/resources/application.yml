@@ -94,9 +94,9 @@ trading:
     momentum-exit-drop-pct: 70.0
     momentum-exit-progress-threshold: 0.5
     momentum-exit-min-hold-minutes: 15
-    # Hunter / Scalping Mode (1m strategy) — ENABLED: produccion, killzones + induction + stoch divergence + M5 filter
+    # Hunter / Scalping Mode (1m strategy) — DISABLED: underperforming, removed after 4 losing scalp trades in a row
     hunter:
-      mode-enabled: true
+      mode-enabled: false
       min-volatility-pct: 0.15
       max-spread-pct: 0.5
       min-volume-ratio: 0.5
