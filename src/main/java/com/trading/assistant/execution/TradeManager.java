@@ -1264,19 +1264,46 @@ public class TradeManager {
             String[] botCreds = resolveBotCredentials(trade.getUserId(), tradeSymbol);
 
             // 1. Place NEW SL order FIRST (never leave trade unprotected)
-            String newSlOrderId = (botCreds != null)
-                    ? binanceClient.placeStopLossOrderForBot(slSide, positionSide, trade.getQuantity(), trade.getStopLoss(), botCreds[0], botCreds[1], tradeSymbol)
-                    : binanceClient.placeStopLossOrder(slSide, positionSide, trade.getQuantity(), trade.getStopLoss());
+            // Try bot creds first, fallback to global on 401 (same as entry logic)
+            String newSlOrderId = null;
+            boolean usedBotCreds = false;
+            if (botCreds != null) {
+                try {
+                    newSlOrderId = binanceClient.placeStopLossOrderForBot(slSide, positionSide, trade.getQuantity(), trade.getStopLoss(), botCreds[0], botCreds[1], tradeSymbol);
+                    usedBotCreds = true;
+                } catch (Exception e) {
+                    if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                        logger.warn("Bot SL update failed with 401 for Trade {}. Falling back to global.", trade.getId());
+                    } else {
+                        throw e;
+                    }
+                }
+            }
+            if (newSlOrderId == null) {
+                newSlOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, trade.getQuantity(), trade.getStopLoss());
+                usedBotCreds = false;
+            }
+
             if (newSlOrderId != null) {
                 trade.setStopLossOrderId(newSlOrderId);
                 tradeRepository.save(trade);
-                logger.info("Updated Binance SL order for Trade {}: new orderId={}", trade.getId(), newSlOrderId);
+                logger.info("Updated Binance SL order for Trade {}: new orderId={} (bot={})", trade.getId(), newSlOrderId, usedBotCreds);
 
                 // 2. Only cancel OLD order after new one is confirmed
                 if (oldSlOrderId != null && !oldSlOrderId.isEmpty()) {
-                    boolean cancelled = (botCreds != null)
-                            ? binanceClient.cancelOrderForBot(oldSlOrderId, botCreds[0], botCreds[1], tradeSymbol)
-                            : binanceClient.cancelOrder(oldSlOrderId);
+                    boolean cancelled = false;
+                    if (usedBotCreds && botCreds != null) {
+                        try {
+                            cancelled = binanceClient.cancelOrderForBot(oldSlOrderId, botCreds[0], botCreds[1], tradeSymbol);
+                        } catch (Exception e) {
+                            if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
+                                logger.warn("Bot cancel failed with 401 for Trade {}. Trying global.", trade.getId());
+                            }
+                        }
+                    }
+                    if (!cancelled) {
+                        cancelled = binanceClient.cancelOrder(oldSlOrderId);
+                    }
                     if (!cancelled) {
                         logger.warn("Failed to cancel old SL order {} for Trade {} — harmless, new SL is active", oldSlOrderId, trade.getId());
                     }
