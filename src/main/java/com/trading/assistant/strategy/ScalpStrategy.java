@@ -374,7 +374,7 @@ public class ScalpStrategy {
             logger.info("🟢 SCALP LONG signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x, induction={}, bullishDiv={}",
                     entryType, String.format("%.2f", previousRsi), String.format("%.2f", rsi),
                     String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio), inductionLong, bullishDiv);
-            tradeManager.executeScalpLongEntry(currentPrice, entryType, rsi, momentum, volRatio);
+            tradeManager.executeScalpLongEntry(sym, currentPrice, entryType, rsi, momentum, volRatio);
         } else {
             logger.debug("No scalp LONG. MeanRev(RSI<{}:{}, RevUp:{}, Mo>{}:{}), VwapBounce(inBuy:{}, nearVwap:{}, aboveEma:{}), Induction:{}, BullishDiv:{}",
                     symRsiOversold, rsiOversoldMicro, rsiReversingUp, symMomentumThreshold, momentumPositive,
@@ -448,7 +448,7 @@ public class ScalpStrategy {
             logger.info("🔴 SCALP SHORT signal: {} | RSI={}→{}, Mo={}%, nearVwap={}, vol={}x, induction={}, bearishDiv={}",
                     entryType, String.format("%.2f", previousRsi), String.format("%.2f", rsi),
                     String.format("%.3f", momentum), nearVwap, String.format("%.2f", volRatio), inductionShort, bearishDiv);
-            tradeManager.executeScalpShortEntry(currentPrice, entryType, rsi, momentum, volRatio);
+            tradeManager.executeScalpShortEntry(sym, currentPrice, entryType, rsi, momentum, volRatio);
         } else {
             logger.debug("No scalp SHORT. MeanRev(RSI>{}:{}, RevDown:{}, Mo<-{}:{}), VwapReject(inSell:{}, nearVwap:{}, belowEma:{}), Induction:{}, BearishDiv:{}",
                     symRsiOverbought, rsiOverboughtMicro, rsiReversingDown, symMomentumThreshold, momentumNegative,

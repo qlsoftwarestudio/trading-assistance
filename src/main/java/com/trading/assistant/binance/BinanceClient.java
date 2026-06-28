@@ -414,6 +414,14 @@ public class BinanceClient {
         }
     }
 
+    public String placeBuyOrderForSymbol(String sym, BigDecimal quantity) {
+        return placeOrderForSymbol(sym, "BUY", "LONG", quantity, false);
+    }
+
+    public String placeShortSellOrderForSymbol(String sym, BigDecimal quantity) {
+        return placeOrderForSymbol(sym, "SELL", "SHORT", quantity, false);
+    }
+
     public String placeSellOrderForSymbol(String sym, BigDecimal quantity) {
         return placeOrderForSymbol(sym, "SELL", "LONG", quantity, true);
     }
@@ -598,6 +606,143 @@ public class BinanceClient {
             return algoId;
         } catch (Exception e) {
             logger.error("Error placing algo {} order: {}", type, e.getMessage(), e);
+            return null;
+        }
+    }
+
+    public String placeStopLossOrderForSymbol(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice, String sym) {
+        String orderId = placeConditionalOrderForSymbol(side, positionSide, quantity, stopPrice, "STOP_MARKET", sym);
+        if (orderId == null) {
+            logger.warn("STOP_MARKET not supported for {}, falling back to STOP (limit conditional) for testnet", sym);
+            orderId = placeConditionalOrderForSymbol(side, positionSide, quantity, stopPrice, "STOP", sym);
+        }
+        return orderId;
+    }
+
+    public String placeTakeProfitOrderForSymbol(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice, String sym) {
+        String orderId = placeConditionalOrderForSymbol(side, positionSide, quantity, stopPrice, "TAKE_PROFIT_MARKET", sym);
+        if (orderId == null) {
+            logger.warn("TAKE_PROFIT_MARKET not supported for {}, falling back to TAKE_PROFIT (limit conditional) for testnet", sym);
+            orderId = placeConditionalOrderForSymbol(side, positionSide, quantity, stopPrice, "TAKE_PROFIT", sym);
+        }
+        return orderId;
+    }
+
+    private String placeConditionalOrderForSymbol(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice, String type, String sym) {
+        if (!configured) {
+            logger.info("DEMO MODE: Would place {} {} order at {} for {}", type, side, stopPrice, sym);
+            return "DEMO_ORDER_" + System.currentTimeMillis();
+        }
+        if (testnetMode) {
+            logger.info("TESTNET: Conditional orders not supported by Binance testnet. Using local polling for {} {} at {} on {}", type, side, stopPrice, sym);
+            return "TESTNET_" + type + "_" + System.currentTimeMillis();
+        }
+        AtomicReference<String> errorBodyRef = new AtomicReference<>();
+        try {
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", sym);
+            params.put("side", side);
+            if (hedgeMode) {
+                params.put("positionSide", positionSide);
+            }
+            int pricePrec = getPricePrecisionForSymbol(sym);
+            params.put("type", type);
+            params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
+            params.put("reduceOnly", "true");
+            params.put("stopPrice", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
+
+            if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
+                params.put("price", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
+                params.put("timeInForce", "GTC");
+            }
+
+            String query = buildSignedQuery(params);
+            String response = webClient.post()
+                    .uri("/fapi/v1/order?" + query)
+                    .header("X-MBX-APIKEY", apiKey)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            errorBodyRef.set(body);
+                            if (!body.contains("-4120") && !body.contains("not supported") && !body.contains("Algo Order API")) {
+                                logger.error("Binance 4xx placing {} for {} ({}): {}", type, sym, clientResponse.statusCode(), body);
+                            }
+                        }).then(clientResponse.createException())
+                    )
+                    .onStatus(status -> status.is5xxServerError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            errorBodyRef.set(body);
+                            logger.error("Binance 5xx placing {} for {} ({}): {}", type, sym, clientResponse.statusCode(), body);
+                        }).then(clientResponse.createException())
+                    )
+                    .bodyToMono(String.class)
+                    .block();
+
+            logger.info("{} order placed for {}: {}", type, sym, response);
+            return extractOrderId(response);
+        } catch (Exception e) {
+            String errorDetails = errorBodyRef.get();
+            if (errorDetails == null) {
+                errorDetails = e.getMessage();
+            }
+            if (errorDetails != null && (errorDetails.contains("-4120") || errorDetails.contains("not supported") || errorDetails.contains("Algo Order API"))) {
+                logger.warn("Order type {} not supported on /fapi/v1/order for {}, falling back to /fapi/v1/algoOrder: {}", type, sym, errorDetails);
+                return placeConditionalOrderViaAlgoForSymbol(side, positionSide, quantity, stopPrice, type, sym);
+            }
+            logger.error("Error placing {} order for {}: {}", type, sym, e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private String placeConditionalOrderViaAlgoForSymbol(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice, String type, String sym) {
+        AtomicReference<String> errorBodyRef = new AtomicReference<>();
+        try {
+            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", sym);
+            params.put("side", side);
+            if (hedgeMode) {
+                params.put("positionSide", positionSide);
+            }
+            int pricePrec = getPricePrecisionForSymbol(sym);
+            params.put("algoType", "CONDITIONAL");
+            params.put("type", type);
+            params.put("quantity", quantity.setScale(quantityPrecision, RoundingMode.DOWN).toPlainString());
+            params.put("reduceOnly", "true");
+            params.put("triggerPrice", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
+
+            if ("STOP".equals(type) || "TAKE_PROFIT".equals(type)) {
+                params.put("price", stopPrice.setScale(pricePrec, RoundingMode.HALF_UP).toPlainString());
+                params.put("timeInForce", "GTC");
+            }
+
+            String query = buildSignedQuery(params);
+            String response = webClient.post()
+                    .uri("/fapi/v1/algoOrder?" + query)
+                    .header("X-MBX-APIKEY", apiKey)
+                    .retrieve()
+                    .onStatus(status -> status.is4xxClientError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            errorBodyRef.set(body);
+                            logger.error("Binance 4xx placing algo {} for {} ({}): {}", type, sym, clientResponse.statusCode(), body);
+                        }).then(clientResponse.createException())
+                    )
+                    .onStatus(status -> status.is5xxServerError(), clientResponse ->
+                        clientResponse.bodyToMono(String.class).doOnNext(body -> {
+                            errorBodyRef.set(body);
+                            logger.error("Binance 5xx placing algo {} for {} ({}): {}", type, sym, clientResponse.statusCode(), body);
+                        }).then(clientResponse.createException())
+                    )
+                    .bodyToMono(String.class)
+                    .block();
+
+            logger.info("Algo {} order placed for {}: {}", type, sym, response);
+            String algoId = extractAlgoId(response);
+            if (algoId != null) {
+                algoOrderTypes.put(algoId, type);
+            }
+            return algoId;
+        } catch (Exception e) {
+            logger.error("Error placing algo {} order for {}: {}", type, sym, e.getMessage(), e);
             return null;
         }
     }

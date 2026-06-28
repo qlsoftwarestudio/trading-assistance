@@ -479,23 +479,23 @@ public class TradeManager {
      * Execute SCALP LONG entry — tight SL/TP, smaller position, no ATR.
      * Called from ScalpStrategy when 1m conditions are met.
      */
-    public void executeScalpLongEntry(BigDecimal currentPrice, String setupType,
+    public void executeScalpLongEntry(String tradeSymbol, BigDecimal currentPrice, String setupType,
                                        double rsi, double momentum, double volRatio) {
-        executeScalpEntry(currentPrice, "LONG", setupType, rsi, momentum, volRatio,
-                binanceClient::placeBuyOrder);
+        executeScalpEntry(tradeSymbol, currentPrice, "LONG", setupType, rsi, momentum, volRatio,
+                qty -> binanceClient.placeBuyOrderForSymbol(tradeSymbol, qty));
     }
 
     /**
      * Execute SCALP SHORT entry — tight SL/TP, smaller position, no ATR.
      * Called from ScalpStrategy when 1m conditions are met.
      */
-    public void executeScalpShortEntry(BigDecimal currentPrice, String setupType,
+    public void executeScalpShortEntry(String tradeSymbol, BigDecimal currentPrice, String setupType,
                                         double rsi, double momentum, double volRatio) {
-        executeScalpEntry(currentPrice, "SHORT", setupType, rsi, momentum, volRatio,
-                binanceClient::placeShortSellOrder);
+        executeScalpEntry(tradeSymbol, currentPrice, "SHORT", setupType, rsi, momentum, volRatio,
+                qty -> binanceClient.placeShortSellOrderForSymbol(tradeSymbol, qty));
     }
 
-    private void executeScalpEntry(BigDecimal currentPrice, String action, String setupType,
+    private void executeScalpEntry(String tradeSymbol, BigDecimal currentPrice, String action, String setupType,
                                     double rsi, double momentum, double volRatio,
                                     OrderPlacer orderPlacer) {
         try {
@@ -553,7 +553,7 @@ public class TradeManager {
 
             // Calculate quantity (consider leverage), rounded to symbol lot size to match Binance execution
             BigDecimal notional = positionSize.multiply(BigDecimal.valueOf(leverage));
-            BigDecimal quantity = binanceClient.roundQuantityForSymbol(symbol,
+            BigDecimal quantity = binanceClient.roundQuantityForSymbol(tradeSymbol,
                     notional.divide(currentPrice, 8, RoundingMode.HALF_DOWN));
 
             // Validate minimum notional
@@ -575,15 +575,15 @@ public class TradeManager {
                 takeProfit = currentPrice.multiply(BigDecimal.valueOf(1 - hunterTpPct / 100)).setScale(8, RoundingMode.HALF_UP);
             }
 
-            logger.info("🎯 Executing scalp {} entry - Price: {}, Qty: {}, SL: {} ({}%), TP: {} ({}%)",
-                    action, currentPrice, quantity, stopLoss, hunterSlPct, takeProfit, hunterTpPct);
+            logger.info("🎯 Executing scalp {} entry for {} - Price: {}, Qty: {}, SL: {} ({}%), TP: {} ({}%)",
+                    action, tradeSymbol, currentPrice, quantity, stopLoss, hunterSlPct, takeProfit, hunterTpPct);
 
             // Place market order
             String orderId = orderPlacer.place(quantity);
 
             if (orderId != null) {
                 Trade trade = new Trade(
-                        symbol,
+                        tradeSymbol,
                         action,
                         currentPrice,
                         quantity,
@@ -613,8 +613,8 @@ public class TradeManager {
                 String tpSide = isLong ? "SELL" : "BUY";
                 String positionSide = isLong ? "LONG" : "SHORT";
 
-                String slOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, quantity, stopLoss);
-                String tpOrderId = binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, takeProfit);
+                String slOrderId = binanceClient.placeStopLossOrderForSymbol(slSide, positionSide, quantity, stopLoss, tradeSymbol);
+                String tpOrderId = binanceClient.placeTakeProfitOrderForSymbol(tpSide, positionSide, quantity, takeProfit, tradeSymbol);
 
                 if (slOrderId != null && tpOrderId != null) {
                     trade.setStopLossOrderId(slOrderId);
@@ -628,14 +628,14 @@ public class TradeManager {
 
                 telegramBot.sendTradeNotification(trade, "SCALP_ENTRY");
 
-                logger.info("✅ Scalp {} trade executed. Trade ID: {}, Order ID: {}",
-                        action, trade.getId(), orderId);
+                logger.info("✅ Scalp {} trade executed for {}. Trade ID: {}, Order ID: {}",
+                        action, tradeSymbol, trade.getId(), orderId);
             } else {
-                logger.error("❌ Failed to execute scalp {} order on Binance", action);
+                logger.error("❌ Failed to execute scalp {} order on Binance for {}", action, tradeSymbol);
             }
 
         } catch (Exception e) {
-            logger.error("Error executing scalp {} entry: {}", action, e.getMessage(), e);
+            logger.error("Error executing scalp {} entry for {}: {}", action, tradeSymbol, e.getMessage(), e);
         }
     }
 
