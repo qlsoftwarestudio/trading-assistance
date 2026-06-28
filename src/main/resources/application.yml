@@ -148,7 +148,7 @@ trading:
     auto-adjust-lookback-days: 30
     # Delta volume filter: estimate buy/sell pressure from candle close position
     use-delta-volume-filter: true
-    delta-volume-threshold: 0.20
+    delta-volume-threshold: 0.10
     use-vwap-filter: true
     vwap-period: 20
     vwap-band-pct: 1.5
@@ -194,8 +194,8 @@ trading:
     balance-atr-compression-ratio: 0.30 # Short ATR / Long ATR < 0.30 = balance
     # Absorption filter: high volume + small candle range = institutional footprint
     use-absorption-filter: false         # OFF by default — experimental (requires volume spike + small range at key level)
-    absorption-volume-multiplier: 2.0    # Current volume must be > 2× average
-    absorption-range-multiplier: 0.3    # Candle range must be < 30% of recent ATR
+    absorption-volume-multiplier: 1.5    # Current volume must be > 1.5× average
+    absorption-range-multiplier: 0.5    # Candle range must be < 50% of recent ATR
 
   # Trading Session Filter (skip low-volume sessions) — disabled by default
   session-filter:

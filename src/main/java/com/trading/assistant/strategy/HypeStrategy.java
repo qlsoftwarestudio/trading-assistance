@@ -182,7 +182,7 @@ public class HypeStrategy {
     @Value("${trading.strategy.use-delta-volume-filter:true}")
     private boolean useDeltaVolumeFilter;
 
-    @Value("${trading.strategy.delta-volume-threshold:0.20}")
+    @Value("${trading.strategy.delta-volume-threshold:0.10}")
     private double deltaVolumeThreshold;
 
     @Value("${trading.strategy.anti-pump-slope-threshold:0.03}")
@@ -247,10 +247,10 @@ public class HypeStrategy {
     @Value("${trading.strategy.use-absorption-filter:false}")
     private boolean useAbsorptionFilter;
 
-    @Value("${trading.strategy.absorption-volume-multiplier:2.0}")
+    @Value("${trading.strategy.absorption-volume-multiplier:1.5}")
     private double absorptionVolumeMultiplier;
 
-    @Value("${trading.strategy.absorption-range-multiplier:0.3}")
+    @Value("${trading.strategy.absorption-range-multiplier:0.5}")
     private double absorptionRangeMultiplier;
 
     @Value("${trading.session-filter.enabled:true}")
@@ -385,8 +385,8 @@ public class HypeStrategy {
                 deltaVolumeRatio = deltaVolume / currentKline.getVolume().doubleValue();
             }
             if (useDeltaVolumeFilter) {
-                String pressure = deltaVolumeRatio > 0.20 ? "BUY_DOMINANT"
-                        : (deltaVolumeRatio < -0.20 ? "SELL_DOMINANT" : "NEUTRAL");
+                String pressure = deltaVolumeRatio > deltaVolumeThreshold ? "BUY_DOMINANT"
+                        : (deltaVolumeRatio < -deltaVolumeThreshold ? "SELL_DOMINANT" : "NEUTRAL");
                 logger.info("📊 Delta volume: {} (ratio: {}) - Pressure: {}",
                         String.format("%.2f", deltaVolume),
                         String.format("%.2f", deltaVolumeRatio),
