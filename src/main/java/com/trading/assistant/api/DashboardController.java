@@ -155,6 +155,89 @@ public class DashboardController {
     }
 
     /**
+     * Get all recent signals (accepted + rejected) unified
+     */
+    @GetMapping("/dashboard/signals/all")
+    @Operation(summary = "Get all recent signals", description = "Returns last 50 accepted and rejected signals combined. Optional ?symbol= filter.")
+    public ResponseEntity<?> getAllRecentSignals(@RequestHeader(value = "Authorization", required = false) String authHeader,
+                                                  @RequestParam(required = false) String symbol,
+                                                  @RequestParam(defaultValue = "24") int hours) {
+        Long userId = getUserIdFromToken(authHeader);
+        if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
+
+        java.time.LocalDateTime since = java.time.LocalDateTime.now().minusHours(hours);
+
+        List<Map<String, Object>> unified = new java.util.ArrayList<>();
+
+        // Accepted signals
+        List<Signal> accepted = symbol != null && !symbol.isEmpty()
+                ? signalRepository.findTop50ByUserIdAndSymbolOrderByGeneratedAtDesc(userId, symbol)
+                : signalRepository.findTop50ByUserIdOrderByGeneratedAtDesc(userId);
+        for (Signal s : accepted) {
+            if (s.getGeneratedAt() == null || s.getGeneratedAt().isBefore(since)) continue;
+            Map<String, Object> m = new HashMap<>();
+            m.put("id", s.getId());
+            m.put("symbol", s.getSymbol());
+            m.put("action", s.getAction());
+            m.put("price", s.getPrice());
+            m.put("rsi", s.getRsi());
+            m.put("setupType", s.getSetupType());
+            m.put("status", "ACCEPTED");
+            m.put("timestamp", s.getGeneratedAt().toString());
+            m.put("rejectionReason", null);
+            m.put("executed", s.getExecuted());
+            m.put("bbUpper", s.getBbUpper());
+            m.put("bbLower", s.getBbLower());
+            m.put("stochK5m", s.getStochK5m());
+            m.put("stochD5m", s.getStochD5m());
+            unified.add(m);
+        }
+
+        // Rejected signals
+        List<com.trading.assistant.portfolio.model.RejectedSignal> rejected;
+        if (symbol != null && !symbol.isEmpty()) {
+            rejected = rejectedSignalRepository.findBySymbolAndCreatedAtAfterOrderByCreatedAtDesc(symbol, since);
+        } else {
+            rejected = rejectedSignalRepository.findAll().stream()
+                    .filter(r -> r.getCreatedAt() != null && r.getCreatedAt().isAfter(since))
+                    .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
+                    .limit(50)
+                    .toList();
+        }
+        for (com.trading.assistant.portfolio.model.RejectedSignal r : rejected) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("id", "rej-" + r.getId());
+            m.put("symbol", r.getSymbol());
+            m.put("action", r.getAction());
+            m.put("price", r.getPrice());
+            m.put("rsi", r.getRsi());
+            m.put("setupType", r.getSetupType());
+            m.put("status", "REJECTED");
+            m.put("timestamp", r.getCreatedAt().toString());
+            m.put("rejectionReason", r.getRejectionReason());
+            m.put("executed", false);
+            m.put("bbUpper", null);
+            m.put("bbLower", null);
+            m.put("stochK5m", null);
+            m.put("stochD5m", null);
+            unified.add(m);
+        }
+
+        // Sort by timestamp desc
+        unified.sort((a, b) -> {
+            String ta = (String) a.get("timestamp");
+            String tb = (String) b.get("timestamp");
+            return tb.compareTo(ta);
+        });
+
+        if (unified.size() > 50) {
+            unified = unified.subList(0, 50);
+        }
+
+        return ResponseEntity.ok(unified);
+    }
+
+    /**
      * Get latest daily metrics
      */
     @GetMapping("/dashboard/metrics")
