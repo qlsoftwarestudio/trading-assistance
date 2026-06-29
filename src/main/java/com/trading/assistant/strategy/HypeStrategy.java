@@ -139,7 +139,7 @@ public class HypeStrategy {
     @Value("${trading.strategy.vwap-band-pct:0.5}")
     private double vwapBandPct;
 
-    @Value("${trading.strategy.use-ema-filter:true}")
+    @Value("${trading.strategy.use-ema-filter:false}")
     private boolean useEmaFilter;
 
     @Value("${trading.strategy.ema-period:9}")
