@@ -191,7 +191,7 @@ public class HypeStrategy {
     @Value("${trading.strategy.anti-crash-slope-threshold:0.03}")
     private double antiCrashSlopeThreshold;
 
-    @Value("${trading.strategy.use-stoch-bb-filter:false}")
+    @Value("${trading.strategy.use-stoch-bb-filter:true}")
     private boolean useStochBbFilter;
 
     @Value("${trading.strategy.stoch-period:14}")

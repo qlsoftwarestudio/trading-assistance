@@ -179,11 +179,11 @@ trading:
     stoch-period: 14                 # Stochastic lookback period (standard: 14)
     stoch-smooth-k: 3                # %K smoothing (standard: 3)
     stoch-smooth-d: 3                # %D smoothing (standard: 3)
-    stoch-oversold: 20               # %K threshold for LONG confirmation
-    stoch-overbought: 80             # %K threshold for SHORT confirmation
+    stoch-oversold: 15               # %K threshold for LONG confirmation (more extreme)
+    stoch-overbought: 85             # %K threshold for SHORT confirmation (more extreme)
     bb-period: 20                    # Bollinger Bands SMA period (standard: 20)
     bb-std-dev: 2.0                  # Standard deviations (standard: 2.0)
-    bb-proximity-pct: 0.3            # Price must be within this % of BB band to qualify (stricter)
+    bb-proximity-pct: 0.2            # Price must be within this % of BB band to qualify (stricter)
     use-bb-based-sl: false           # Tighten SL to BB band when enabled
     bb-sl-buffer-pct: 0.1            # Buffer below BB lower (for LONG SL) as % of band price
 
