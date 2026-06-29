@@ -102,9 +102,9 @@ public class TradeManager {
     @Value("${trading.strategy.max-hold-minutes:45}")
     private int maxHoldMinutes;
 
-    // Dynamic max hold per symbol (HYPE=45min, SOL=120min, etc.)
+    // Dynamic max hold per symbol (HYPE=75min, SOL=120min, etc.)
     private final Map<String, Integer> maxHoldMinutesBySymbol = java.util.Map.of(
-            "HYPEUSDT", 45,
+            "HYPEUSDT", 75,
             "SOLUSDT", 120,
             "BTCUSDT", 120,
             "ETHUSDT", 90
