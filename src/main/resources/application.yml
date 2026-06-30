@@ -163,9 +163,11 @@ trading:
     max-atr-sl-pct: 2.5       # Hard cap on ATR-based SL
     use-regression-filter: true
     regression-lookback: 50
-    use-trend-dip-long: true
-    trend-dip-rsi-threshold: 45
-    trend-dip-channel-slope: 0.02
+    # Breakout + Trend-Dip: DISABLED — bot now operates ONLY Mean-Reversion at BB extremes
+    use-breakout: false                # OFF: no breakout entries (only reversal at BB extremes)
+    use-trend-dip-long: false          # OFF: no trend-dip entries (only reversal at BB extremes)
+    trend-dip-rsi-threshold: 45        # Legacy param (inactive)
+    trend-dip-channel-slope: 0.02      # Legacy param (inactive)
     anti-pump-slope-threshold: 0.03
     anti-crash-slope-threshold: 0.03
     # Short-in-uptrend protection: require higher RSI + higher volume when shorting into uptrend

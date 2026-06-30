@@ -169,6 +169,9 @@ public class HypeStrategy {
     @Value("${trading.strategy.regression-lookback:20}")
     private int regressionLookback;
 
+    @Value("${trading.strategy.use-breakout:true}")
+    private boolean useBreakout;
+
     @Value("${trading.strategy.use-trend-dip-long:true}")
     private boolean useTrendDipLong;
 
@@ -456,7 +459,7 @@ public class HypeStrategy {
         boolean volumeSpikeLong = rsi < oversoldSpikeRsiThreshold
                 && relativeVolume >= oversoldSpikeVolumeThreshold
                 && rsiReversingUp;
-        boolean breakoutCondition = breakoutAbove && relativeVolume >= 1.0;
+        boolean breakoutCondition = useBreakout && breakoutAbove && relativeVolume >= 1.0;
 
         // Trend-following dip: buy the pullback within an uptrending regression channel
         boolean trendDipCondition = useTrendDipLong
@@ -715,7 +718,7 @@ public class HypeStrategy {
         boolean volumeSpikeShort = rsi > (100 - oversoldSpikeRsiThreshold)
                 && relativeVolume >= oversoldSpikeVolumeThreshold
                 && rsiReversingDown;
-        boolean breakoutCondition = breakoutBelow && relativeVolume >= 1.0;
+        boolean breakoutCondition = useBreakout && breakoutBelow && relativeVolume >= 1.0;
 
         // Trend-following pullback: short the bounce within a downtrending regression channel
         boolean trendDipShortCondition = useTrendDipLong
