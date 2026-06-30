@@ -189,10 +189,10 @@ trading:
     use-bb-based-sl: true           # Tighten SL to BB band when enabled
     bb-sl-buffer-pct: 0.1            # Buffer below BB lower (for LONG SL) as % of band price
     # Rejection candle filter: require wick-based reversal candle at BB extremes
-    use-rejection-candle-filter: false  # OFF by default — when ON, requires long wick + close back for mean-reversion entries
+    use-rejection-candle-filter: true   # ON: requires long wick + close back for mean-reversion entries
     rejection-candle-min-wick-ratio: 2.0 # Lower wick must be >= 2× body size (LONG) / upper wick >= 2× body (SHORT)
     # Liquidity sweep filter: detect price sweeping recent swing high/low with long wick + close back
-    use-liquidity-sweep-filter: false   # OFF by default — when ON, requires a liquidity sweep of recent swing points
+    use-liquidity-sweep-filter: true    # ON: requires a liquidity sweep of recent swing points
     liquidity-sweep-lookback: 5          # Look back N candles for swing high/low to sweep
 
     # Balance filter: reject breakouts when market is in consolidation/chop (Fabio AMT)
