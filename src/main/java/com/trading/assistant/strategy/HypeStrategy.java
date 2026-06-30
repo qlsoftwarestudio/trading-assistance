@@ -221,6 +221,20 @@ public class HypeStrategy {
     @Value("${trading.strategy.rsi-overbought-uptrend:85}")
     private double rsiOverboughtUptrend;
 
+    // Rejection candle filter: require a wick-based reversal candle at BB extremes
+    @Value("${trading.strategy.use-rejection-candle-filter:false}")
+    private boolean useRejectionCandleFilter;
+
+    @Value("${trading.strategy.rejection-candle-min-wick-ratio:2.0}")
+    private double rejectionCandleMinWickRatio;
+
+    // Liquidity sweep filter: detect price sweeping a recent swing high/low with long wick + close back
+    @Value("${trading.strategy.use-liquidity-sweep-filter:false}")
+    private boolean useLiquiditySweepFilter;
+
+    @Value("${trading.strategy.liquidity-sweep-lookback:5}")
+    private int liquiditySweepLookback;
+
     @Value("${trading.strategy.short-min-volume-uptrend:2.0}")
     private double shortMinVolumeUptrend;
 
@@ -411,8 +425,8 @@ public class HypeStrategy {
                         String.format("%.4f", bbUpper), String.format("%.4f", bbMid), String.format("%.4f", bbLower));
             }
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected);
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected, currentKline, klines);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected, currentKline, klines);
 
             // Update trailing stops and time exits for open trades (data already fetched above)
             tradeManager.updateTrailingAndTimeExit(sym, userId, currentPrice, currentKline, projection);
@@ -435,7 +449,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected) {
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected, Kline currentKline, List<Kline> klines) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean extremeOversold = rsi < emaExtremeRsiThreshold;
@@ -575,6 +589,20 @@ public class HypeStrategy {
                         String.format("%.1f", stochK5m), String.format("%.2f", lowerBandGap), String.format("%.1f", stochK15m));
             }
 
+            // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
+            if (useRejectionCandleFilter && meanReversionCondition && !isRejectionCandleForLong(currentKline)) {
+                logger.info("❌ LONG {} rejected: no rejection candle at lower BB (wick too small)", entryType);
+                saveRejection(sym, "LONG", entryType, "NO_REJECTION_CANDLE", currentPrice, rsi, momentum, 0.0);
+                return;
+            }
+
+            // Liquidity sweep filter: detect price sweeping a recent swing low with long wick + close back
+            if (useLiquiditySweepFilter && meanReversionCondition && !hasLiquiditySweepForLong(klines, currentKline, liquiditySweepLookback)) {
+                logger.info("❌ LONG {} rejected: no liquidity sweep detected at lower BB", entryType);
+                saveRejection(sym, "LONG", entryType, "NO_LIQUIDITY_SWEEP", currentPrice, rsi, momentum, 0.0);
+                return;
+            }
+
             // Auto-adjust: skip if this setup has been disabled due to poor performance
             if (!autoAdjustService.isSetupEnabled("LONG", entryType)) {
                 logger.info("🚫 LONG {} entry blocked by auto-adjust (poor recent performance).", entryType);
@@ -671,7 +699,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected) {
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected, Kline currentKline, List<Kline> klines) {
         boolean rsiReversingDown = rsi < previousRsi;
 
         // Dynamic RSI threshold: higher bar when shorting into strong uptrend
@@ -867,6 +895,20 @@ public class HypeStrategy {
                         String.format("%.1f", stochK5m), String.format("%.2f", upperBandGap), String.format("%.1f", stochK15m));
             }
 
+            // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
+            if (useRejectionCandleFilter && meanReversionCondition && !isRejectionCandleForShort(currentKline)) {
+                logger.info("❌ SHORT {} rejected: no rejection candle at upper BB (wick too small)", entryType);
+                saveRejection(sym, "SHORT", entryType, "NO_REJECTION_CANDLE", currentPrice, rsi, momentum, 0.0);
+                return;
+            }
+
+            // Liquidity sweep filter: detect price sweeping a recent swing high with long wick + close back
+            if (useLiquiditySweepFilter && meanReversionCondition && !hasLiquiditySweepForShort(klines, currentKline, liquiditySweepLookback)) {
+                logger.info("❌ SHORT {} rejected: no liquidity sweep detected at upper BB", entryType);
+                saveRejection(sym, "SHORT", entryType, "NO_LIQUIDITY_SWEEP", currentPrice, rsi, momentum, 0.0);
+                return;
+            }
+
             // Auto-adjust: skip if this setup has been disabled due to poor performance
             if (!autoAdjustService.isSetupEnabled("SHORT", entryType)) {
                 logger.info("🚫 SHORT {} entry blocked by auto-adjust (poor recent performance).", entryType);
@@ -1048,6 +1090,73 @@ public class HypeStrategy {
 
     public boolean isSymbolEnabled(String sym) {
         return !disabledSymbols.contains(sym);
+    }
+
+    // ============== Rejection candle filter (wick-based reversal at extremes) ==============
+    private boolean isRejectionCandleForLong(Kline k) {
+        if (k == null || k.getOpen() == null || k.getClose() == null || k.getHigh() == null || k.getLow() == null) return false;
+        double open = k.getOpen().doubleValue();
+        double close = k.getClose().doubleValue();
+        double high = k.getHigh().doubleValue();
+        double low = k.getLow().doubleValue();
+        double body = Math.abs(close - open);
+        double lowerWick = Math.min(open, close) - low;
+        double upperWick = high - Math.max(open, close);
+        // Require lower wick >= minWickRatio × body, and close near the high (buying pressure)
+        if (body == 0) return lowerWick > 0 && close >= high * 0.999;
+        return lowerWick >= body * rejectionCandleMinWickRatio && close >= high - (high - low) * 0.35 && close > open;
+    }
+
+    private boolean isRejectionCandleForShort(Kline k) {
+        if (k == null || k.getOpen() == null || k.getClose() == null || k.getHigh() == null || k.getLow() == null) return false;
+        double open = k.getOpen().doubleValue();
+        double close = k.getClose().doubleValue();
+        double high = k.getHigh().doubleValue();
+        double low = k.getLow().doubleValue();
+        double body = Math.abs(close - open);
+        double upperWick = high - Math.max(open, close);
+        // Require upper wick >= minWickRatio × body, and close near the low (selling pressure)
+        if (body == 0) return upperWick > 0 && close <= low * 1.001;
+        return upperWick >= body * rejectionCandleMinWickRatio && close <= low + (high - low) * 0.35 && close < open;
+    }
+
+    // ============== Liquidity sweep detection (stop-hunt + close back) ==============
+    private boolean hasLiquiditySweepForLong(List<Kline> klines, Kline current, int lookback) {
+        if (klines == null || klines.size() < lookback + 1 || current == null || current.getLow() == null || current.getClose() == null) return false;
+        double currentLow = current.getLow().doubleValue();
+        double currentClose = current.getClose().doubleValue();
+        // Find the lowest low in the previous `lookback` candles (excluding current)
+        double recentLow = Double.MAX_VALUE;
+        int start = Math.max(0, klines.size() - lookback - 1);
+        int end = klines.size() - 1; // exclude current
+        for (int i = start; i < end; i++) {
+            Kline k = klines.get(i);
+            if (k.getLow() != null) recentLow = Math.min(recentLow, k.getLow().doubleValue());
+        }
+        // Sweep: current low breaks below recent low, but close is back above it (rejection)
+        boolean swept = currentLow < recentLow * 0.9995;
+        boolean recovered = currentClose > recentLow;
+        double wickPct = recentLow > 0 ? (recentLow - currentLow) / recentLow * 100.0 : 0;
+        return swept && recovered && wickPct > 0.05;
+    }
+
+    private boolean hasLiquiditySweepForShort(List<Kline> klines, Kline current, int lookback) {
+        if (klines == null || klines.size() < lookback + 1 || current == null || current.getHigh() == null || current.getClose() == null) return false;
+        double currentHigh = current.getHigh().doubleValue();
+        double currentClose = current.getClose().doubleValue();
+        // Find the highest high in the previous `lookback` candles (excluding current)
+        double recentHigh = 0;
+        int start = Math.max(0, klines.size() - lookback - 1);
+        int end = klines.size() - 1; // exclude current
+        for (int i = start; i < end; i++) {
+            Kline k = klines.get(i);
+            if (k.getHigh() != null) recentHigh = Math.max(recentHigh, k.getHigh().doubleValue());
+        }
+        // Sweep: current high breaks above recent high, but close is back below it (rejection)
+        boolean swept = currentHigh > recentHigh * 1.0005;
+        boolean recovered = currentClose < recentHigh;
+        double wickPct = recentHigh > 0 ? (currentHigh - recentHigh) / recentHigh * 100.0 : 0;
+        return swept && recovered && wickPct > 0.05;
     }
 
     // Phase 3.1: Rejection tracking helper

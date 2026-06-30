@@ -152,7 +152,7 @@ trading:
     use-vwap-filter: true
     vwap-period: 20
     vwap-band-pct: 1.5
-    use-ema-filter: true
+    use-ema-filter: false
     ema-period: 9
     ema-extreme-rsi-threshold: 15
     oversold-spike-rsi-threshold: 20
@@ -184,8 +184,14 @@ trading:
     bb-period: 20                    # Bollinger Bands SMA period (standard: 20)
     bb-std-dev: 2.0                  # Standard deviations (standard: 2.0)
     bb-proximity-pct: 0.2            # Price must be within this % of BB band to qualify (stricter)
-    use-bb-based-sl: false           # Tighten SL to BB band when enabled
+    use-bb-based-sl: true           # Tighten SL to BB band when enabled
     bb-sl-buffer-pct: 0.1            # Buffer below BB lower (for LONG SL) as % of band price
+    # Rejection candle filter: require wick-based reversal candle at BB extremes
+    use-rejection-candle-filter: false  # OFF by default — when ON, requires long wick + close back for mean-reversion entries
+    rejection-candle-min-wick-ratio: 2.0 # Lower wick must be >= 2× body size (LONG) / upper wick >= 2× body (SHORT)
+    # Liquidity sweep filter: detect price sweeping recent swing high/low with long wick + close back
+    use-liquidity-sweep-filter: false   # OFF by default — when ON, requires a liquidity sweep of recent swing points
+    liquidity-sweep-lookback: 5          # Look back N candles for swing high/low to sweep
 
     # Balance filter: reject breakouts when market is in consolidation/chop (Fabio AMT)
     use-balance-filter: true           # ON: invalidate breakouts in balance/chop
@@ -205,7 +211,7 @@ trading:
 
   # Market Context / Multi-timeframe Analysis
   context:
-    enabled: true
+    enabled: false
     require-confluence: false
     require-volume: false
     min-volume-ratio: 1.2

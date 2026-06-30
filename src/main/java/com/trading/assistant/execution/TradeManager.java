@@ -105,7 +105,7 @@ public class TradeManager {
     // Dynamic max hold per symbol (HYPE=75min, SOL=120min, etc.)
     private final Map<String, Integer> maxHoldMinutesBySymbol = java.util.Map.of(
             "HYPEUSDT", 75,
-            "SOLUSDT", 120,
+            "SOLUSDT", 150,
             "BTCUSDT", 120,
             "ETHUSDT", 90
     );
