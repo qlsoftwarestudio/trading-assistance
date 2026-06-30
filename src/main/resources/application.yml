@@ -168,14 +168,17 @@ trading:
     use-trend-dip-long: false          # OFF: no trend-dip entries (only reversal at BB extremes)
     trend-dip-rsi-threshold: 45        # Legacy param (inactive)
     trend-dip-channel-slope: 0.02      # Legacy param (inactive)
-    anti-pump-slope-threshold: 0.03
-    anti-crash-slope-threshold: 0.03
+    # Anti-pump/anti-crash: DISABLED — redundant with Stoch+BB + Liquidity Sweep filters
+    # These filters rejected shorts in uptrend/canal and longs in downtrend/canal
+    # But now we ONLY enter at BB extremes with sweep confirmation, which is valid even in strong trends
+    anti-pump-slope-threshold: 999.0    # Disabled (set to extreme value so condition never triggers)
+    anti-crash-slope-threshold: 999.0    # Disabled (set to extreme value so condition never triggers)
     # Short-in-uptrend protection: require higher RSI + higher volume when shorting into uptrend
     rsi-overbought-uptrend: 85
     short-min-volume-uptrend: 2.0
     short-min-conditions-uptrend: 2
-    # 1h trend filter: reject Mean-Rev SHORT when trend1h=UP and price above VWAP
-    use-trend1h-mean-rev-filter: true
+    # 1h trend filter: DISABLED — redundant with VWAP filter + Stoch+BB at extremes
+    use-trend1h-mean-rev-filter: false
     # Stochastic + Bollinger Bands confirmation filter
     use-stoch-bb-filter: true        # ON: entries only near BB bands + stoch confirmation
     stoch-period: 14                 # Stochastic lookback period (standard: 14)
