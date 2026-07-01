@@ -533,8 +533,8 @@ public class HypeStrategy {
                 logger.info("⚡ EMA filter bypassed: RSI={} < {} (extreme oversold)", String.format("%.2f", rsi), emaExtremeRsiThreshold);
             }
 
-            // Context filters (skipped when contextEnabled=false)
-            if (contextEnabled && ctx != null) {
+            // Context filters (only rejects when requireConfluence=true; contextEnabled alone just collects data for UI)
+            if (contextEnabled && requireConfluence && ctx != null) {
                 if (!ctx.supportsLong() && !volumeSpikeLong && !extremeOversold) {
                     logger.info("❌ LONG rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
                             ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
@@ -831,8 +831,8 @@ public class HypeStrategy {
                 logger.info("⚡ EMA filter bypassed: RSI={} > {} (extreme overbought)", String.format("%.2f", rsi), (100 - emaExtremeRsiThreshold));
             }
 
-            // Context filters (skipped when contextEnabled=false)
-            if (contextEnabled && ctx != null) {
+            // Context filters (only rejects when requireConfluence=true; contextEnabled alone just collects data for UI)
+            if (contextEnabled && requireConfluence && ctx != null) {
                 if (!ctx.supportsShort() && !volumeSpikeShort) {
                     logger.info("❌ SHORT rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
                             ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
