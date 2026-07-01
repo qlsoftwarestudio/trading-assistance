@@ -68,7 +68,7 @@ trading:
     enabled: true
     max-concurrent-trades: 1
     max-hold-minutes: 45
-    require-rsi-reversal: true
+    require-rsi-reversal: false    # OFF: Stoch+BB + Liquidity Sweep + Rejection Candle are sufficient confirmation
     # Risk Management
     use-atr-stop: true           # ENABLED: ATR-based SL with 2:1 auto TP
     symbol-risk-config: "HYPEUSDT:1.5:3.0,SOLUSDT:2.5:5.0"  # Fallback: HYPE 1.5%/3.0%, SOL 2.5%/5.0% (2:1 R:R)
