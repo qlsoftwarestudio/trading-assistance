@@ -147,7 +147,7 @@ trading:
     auto-adjust-win-rate-threshold: 0.30
     auto-adjust-lookback-days: 30
     # Delta volume filter: estimate buy/sell pressure from candle close position
-    use-delta-volume-filter: true
+    use-delta-volume-filter: false   # OFF: counterproductive for mean-reversion (price at BB extreme always shows opposite pressure)
     delta-volume-threshold: 0.30
     use-vwap-filter: true
     vwap-period: 20
