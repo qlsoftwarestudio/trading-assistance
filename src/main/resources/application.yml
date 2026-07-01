@@ -216,9 +216,9 @@ trading:
 
   # Market Context / Multi-timeframe Analysis
   context:
-    enabled: false
-    require-confluence: false
-    require-volume: false
+    enabled: true              # ON: collect 1h/4h/1d trend data (shows in UI) — but does NOT reject trades
+    require-confluence: false  # OFF: no rejection by trend confluence
+    require-volume: false      # OFF: no rejection by volume
     min-volume-ratio: 1.2
 
   # Historical Performance & Auto-Adjustment
