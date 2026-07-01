@@ -593,17 +593,26 @@ public class HypeStrategy {
             }
 
             // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
-            if (useRejectionCandleFilter && meanReversionCondition && !isRejectionCandleForLong(currentKline)) {
+            // Bypass when RSI is extremely oversold (< 20) — extreme readings are sufficient confirmation alone
+            boolean extremeOversoldBypass = rsi < 20.0;
+            if (useRejectionCandleFilter && meanReversionCondition && !extremeOversoldBypass && !isRejectionCandleForLong(currentKline)) {
                 logger.info("❌ LONG {} rejected: no rejection candle at lower BB (wick too small)", entryType);
                 saveRejection(sym, "LONG", entryType, "NO_REJECTION_CANDLE", currentPrice, rsi, momentum, 0.0);
                 return;
             }
+            if (extremeOversoldBypass && useRejectionCandleFilter) {
+                logger.info("⚡ Rejection candle bypassed: RSI={} < 20 (extreme oversold)", String.format("%.2f", rsi));
+            }
 
             // Liquidity sweep filter: detect price sweeping a recent swing low with long wick + close back
-            if (useLiquiditySweepFilter && meanReversionCondition && !hasLiquiditySweepForLong(klines, currentKline, liquiditySweepLookback)) {
+            // Bypass when RSI is extremely oversold (< 20) — extreme readings are sufficient confirmation alone
+            if (useLiquiditySweepFilter && meanReversionCondition && !extremeOversoldBypass && !hasLiquiditySweepForLong(klines, currentKline, liquiditySweepLookback)) {
                 logger.info("❌ LONG {} rejected: no liquidity sweep detected at lower BB", entryType);
                 saveRejection(sym, "LONG", entryType, "NO_LIQUIDITY_SWEEP", currentPrice, rsi, momentum, 0.0);
                 return;
+            }
+            if (extremeOversoldBypass && useLiquiditySweepFilter) {
+                logger.info("⚡ Liquidity sweep bypassed: RSI={} < 20 (extreme oversold)", String.format("%.2f", rsi));
             }
 
             // Auto-adjust: skip if this setup has been disabled due to poor performance
@@ -899,17 +908,26 @@ public class HypeStrategy {
             }
 
             // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
-            if (useRejectionCandleFilter && meanReversionCondition && !isRejectionCandleForShort(currentKline)) {
+            // Bypass when RSI is extremely overbought (> 80) — extreme readings are sufficient confirmation alone
+            boolean extremeOverboughtBypass = rsi > 80.0;
+            if (useRejectionCandleFilter && meanReversionCondition && !extremeOverboughtBypass && !isRejectionCandleForShort(currentKline)) {
                 logger.info("❌ SHORT {} rejected: no rejection candle at upper BB (wick too small)", entryType);
                 saveRejection(sym, "SHORT", entryType, "NO_REJECTION_CANDLE", currentPrice, rsi, momentum, 0.0);
                 return;
             }
+            if (extremeOverboughtBypass && useRejectionCandleFilter) {
+                logger.info("⚡ Rejection candle bypassed: RSI={} > 80 (extreme overbought)", String.format("%.2f", rsi));
+            }
 
             // Liquidity sweep filter: detect price sweeping a recent swing high with long wick + close back
-            if (useLiquiditySweepFilter && meanReversionCondition && !hasLiquiditySweepForShort(klines, currentKline, liquiditySweepLookback)) {
+            // Bypass when RSI is extremely overbought (> 80) — extreme readings are sufficient confirmation alone
+            if (useLiquiditySweepFilter && meanReversionCondition && !extremeOverboughtBypass && !hasLiquiditySweepForShort(klines, currentKline, liquiditySweepLookback)) {
                 logger.info("❌ SHORT {} rejected: no liquidity sweep detected at upper BB", entryType);
                 saveRejection(sym, "SHORT", entryType, "NO_LIQUIDITY_SWEEP", currentPrice, rsi, momentum, 0.0);
                 return;
+            }
+            if (extremeOverboughtBypass && useLiquiditySweepFilter) {
+                logger.info("⚡ Liquidity sweep bypassed: RSI={} > 80 (extreme overbought)", String.format("%.2f", rsi));
             }
 
             // Auto-adjust: skip if this setup has been disabled due to poor performance
