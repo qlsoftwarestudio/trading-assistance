@@ -148,7 +148,7 @@ trading:
     auto-adjust-lookback-days: 30
     # Delta volume filter: estimate buy/sell pressure from candle close position
     use-delta-volume-filter: true
-    delta-volume-threshold: 0.10
+    delta-volume-threshold: 0.30
     use-vwap-filter: true
     vwap-period: 20
     vwap-band-pct: 1.5
