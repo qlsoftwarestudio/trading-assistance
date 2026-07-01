@@ -801,26 +801,44 @@ public class TradeManager {
             }
 
             // BB-based SL: tighten SL to the BB lower/upper band if it's closer to price than ATR SL
+            // BUT only if the band is on the correct side of the entry price and provides meaningful distance
+            double minBbSlDistancePct = 0.2; // Minimum 0.2% SL distance to avoid micro-SL/TP
             if (useBbBasedSl && signal.getBbLower() != null && signal.getBbUpper() != null) {
                 if (isLong) {
-                    BigDecimal bbSl = signal.getBbLower()
-                            .multiply(BigDecimal.valueOf(1.0 - bbSlBufferPct / 100.0))
-                            .setScale(8, RoundingMode.HALF_UP);
-                    if (bbSl.compareTo(stopLoss) > 0) {
-                        logger.info("📊 BB-based SL tightened for LONG: {} → {} (BB lower: {})", stopLoss, bbSl, signal.getBbLower());
-                        stopLoss = bbSl;
-                        BigDecimal risk = currentPrice.subtract(stopLoss);
-                        takeProfit = currentPrice.add(risk.multiply(BigDecimal.valueOf(2.0))).setScale(8, RoundingMode.HALF_UP);
+                    // For LONG: BB lower must be BELOW entry price
+                    if (signal.getBbLower().compareTo(currentPrice) < 0) {
+                        BigDecimal bbSl = signal.getBbLower()
+                                .multiply(BigDecimal.valueOf(1.0 - bbSlBufferPct / 100.0))
+                                .setScale(8, RoundingMode.HALF_UP);
+                        double bbSlDistancePct = (currentPrice.doubleValue() - bbSl.doubleValue()) / currentPrice.doubleValue() * 100.0;
+                        if (bbSl.compareTo(stopLoss) > 0 && bbSlDistancePct >= minBbSlDistancePct) {
+                            logger.info("📊 BB-based SL tightened for LONG: {} → {} (BB lower: {}, distance: {}%)", stopLoss, bbSl, signal.getBbLower(), String.format("%.2f", bbSlDistancePct));
+                            stopLoss = bbSl;
+                            BigDecimal risk = currentPrice.subtract(stopLoss);
+                            takeProfit = currentPrice.add(risk.multiply(BigDecimal.valueOf(2.0))).setScale(8, RoundingMode.HALF_UP);
+                        } else if (bbSl.compareTo(stopLoss) > 0) {
+                            logger.info("⚠️ BB-based SL for LONG discarded: too tight (distance: {}% < {}% min)", String.format("%.2f", bbSlDistancePct), minBbSlDistancePct);
+                        }
+                    } else {
+                        logger.info("⚠️ BB-based SL for LONG skipped: BB lower {} >= entry {} (band above price)", signal.getBbLower(), currentPrice);
                     }
                 } else {
-                    BigDecimal bbSl = signal.getBbUpper()
-                            .multiply(BigDecimal.valueOf(1.0 + bbSlBufferPct / 100.0))
-                            .setScale(8, RoundingMode.HALF_UP);
-                    if (bbSl.compareTo(stopLoss) < 0) {
-                        logger.info("📊 BB-based SL tightened for SHORT: {} → {} (BB upper: {})", stopLoss, bbSl, signal.getBbUpper());
-                        stopLoss = bbSl;
-                        BigDecimal risk = stopLoss.subtract(currentPrice);
-                        takeProfit = currentPrice.subtract(risk.multiply(BigDecimal.valueOf(2.0))).setScale(8, RoundingMode.HALF_UP);
+                    // For SHORT: BB upper must be ABOVE entry price
+                    if (signal.getBbUpper().compareTo(currentPrice) > 0) {
+                        BigDecimal bbSl = signal.getBbUpper()
+                                .multiply(BigDecimal.valueOf(1.0 + bbSlBufferPct / 100.0))
+                                .setScale(8, RoundingMode.HALF_UP);
+                        double bbSlDistancePct = (bbSl.doubleValue() - currentPrice.doubleValue()) / currentPrice.doubleValue() * 100.0;
+                        if (bbSl.compareTo(stopLoss) < 0 && bbSlDistancePct >= minBbSlDistancePct) {
+                            logger.info("📊 BB-based SL tightened for SHORT: {} → {} (BB upper: {}, distance: {}%)", stopLoss, bbSl, signal.getBbUpper(), String.format("%.2f", bbSlDistancePct));
+                            stopLoss = bbSl;
+                            BigDecimal risk = stopLoss.subtract(currentPrice);
+                            takeProfit = currentPrice.subtract(risk.multiply(BigDecimal.valueOf(2.0))).setScale(8, RoundingMode.HALF_UP);
+                        } else if (bbSl.compareTo(stopLoss) < 0) {
+                            logger.info("⚠️ BB-based SL for SHORT discarded: too tight (distance: {}% < {}% min)", String.format("%.2f", bbSlDistancePct), minBbSlDistancePct);
+                        }
+                    } else {
+                        logger.info("⚠️ BB-based SL for SHORT skipped: BB upper {} <= entry {} (band below price)", signal.getBbUpper(), currentPrice);
                     }
                 }
             }
