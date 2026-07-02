@@ -63,10 +63,10 @@ trading:
     min-momentum: 0.1
     stop-loss-pct: 0.6
     take-profit-pct: 2.5      # Raised from 1.2% → 2.5% for better R:R on swing trades
-    position-size-pct: 33.0
-    leverage: 5
+    position-size-pct: 30.0
+    leverage: 7
     enabled: true
-    max-concurrent-trades: 1
+    max-concurrent-trades: 2
     max-hold-minutes: 45
     require-rsi-reversal: false    # OFF: Stoch+BB + Liquidity Sweep + Rejection Candle are sufficient confirmation
     # Risk Management
@@ -229,7 +229,7 @@ trading:
 
   # Risk Management
   risk:
-    max-daily-loss-pct: 5.0
+    max-daily-loss-pct: 8.0
     min-notional: 5.0
 
 # Telegram Configuration
