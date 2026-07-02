@@ -593,8 +593,9 @@ public class HypeStrategy {
             }
 
             // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
-            // Bypass when RSI is extremely oversold (< 20) — extreme readings are sufficient confirmation alone
-            boolean extremeOversoldBypass = rsi < 20.0;
+            // Bypass when RSI is extremely oversold (< 20) AND volume is not anomalously high (< 3x)
+            // High volume = momentum/crash in progress, NOT exhaustion — do NOT bypass filters
+            boolean extremeOversoldBypass = rsi < 20.0 && relativeVolume < 3.0;
             if (useRejectionCandleFilter && meanReversionCondition && !extremeOversoldBypass && !isRejectionCandleForLong(currentKline)) {
                 logger.info("❌ LONG {} rejected: no rejection candle at lower BB (wick too small)", entryType);
                 saveRejection(sym, "LONG", entryType, "NO_REJECTION_CANDLE", currentPrice, rsi, momentum, 0.0);
@@ -908,8 +909,9 @@ public class HypeStrategy {
             }
 
             // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
-            // Bypass when RSI is extremely overbought (> 80) — extreme readings are sufficient confirmation alone
-            boolean extremeOverboughtBypass = rsi > 80.0;
+            // Bypass when RSI is extremely overbought (> 80) AND volume is not anomalously high (< 3x)
+            // High volume = pump in progress, NOT exhaustion — do NOT bypass filters (e.g. SOL 10.34x pump)
+            boolean extremeOverboughtBypass = rsi > 80.0 && relativeVolume < 3.0;
             if (useRejectionCandleFilter && meanReversionCondition && !extremeOverboughtBypass && !isRejectionCandleForShort(currentKline)) {
                 logger.info("❌ SHORT {} rejected: no rejection candle at upper BB (wick too small)", entryType);
                 saveRejection(sym, "SHORT", entryType, "NO_REJECTION_CANDLE", currentPrice, rsi, momentum, 0.0);
