@@ -212,6 +212,15 @@ public class HypeStrategy {
     @Value("${trading.strategy.stoch-overbought:80}")
     private double stochOverboughtThreshold;
 
+    @Value("${trading.strategy.stoch-15m-long-max:50}")
+    private double stoch15mLongMax;
+
+    @Value("${trading.strategy.stoch-15m-short-min:50}")
+    private double stoch15mShortMin;
+
+    @Value("${trading.strategy.block-short-on-4h-uptrend:true}")
+    private boolean blockShortOn4hUptrend;
+
     @Value("${trading.strategy.bb-period:20}")
     private int bbPeriod;
 
@@ -579,17 +588,18 @@ public class HypeStrategy {
                 double price = currentPrice.doubleValue();
                 double lowerBandGap = indicatorCalculator.getBBDistancePct(price, bbLower); // >0 means price above lower band
                 boolean nearLowerBand = lowerBandGap <= bbProximityPct && lowerBandGap >= -1.0; // within bbProximityPct% above or below lower band
-                boolean stoch15mOk = stochK15m < stochOverboughtThreshold; // 15m not overbought
+                boolean stoch15mOk = stochK15m < stoch15mLongMax; // 15m leaning oversold (not in uptrend)
                 if (!(stochOversold5m && nearLowerBand && stoch15mOk)) {
                     logger.info("❌ LONG rejected by Stoch+BB: stochK5m={} (need <{}) lowerBandGap={}% (need <{}%) stochK15m={} (need <{})",
                             String.format("%.1f", stochK5m), stochOversoldThreshold,
                             String.format("%.2f", lowerBandGap), bbProximityPct,
-                            String.format("%.1f", stochK15m), stochOverboughtThreshold);
+                            String.format("%.1f", stochK15m), stoch15mLongMax;
                     saveRejection(sym, "LONG", entryType, "STOCH_BB_FILTER", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
-                logger.info("✅ Stoch+BB LONG confirmed: stochK5m={} lowerBandGap={}% stochK15m={}",
-                        String.format("%.1f", stochK5m), String.format("%.2f", lowerBandGap), String.format("%.1f", stochK15m));
+                logger.info("✅ Stoch+BB LONG confirmed: stochK5m={} lowerBandGap={}% stochK15m={} (<{})",
+                        String.format("%.1f", stochK5m), String.format("%.2f", lowerBandGap),
+                        String.format("%.1f", stochK15m), stoch15mLongMax);
             }
 
             // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
@@ -794,6 +804,14 @@ public class HypeStrategy {
                 return;
             }
 
+            // 4h uptrend block for Mean-Reversion SHORT: if 4h is UP, avoid mean-reversion shorts (sustained uptrend)
+            if (blockShortOn4hUptrend && meanReversionCondition && !volumeSpikeShort
+                    && ctx != null && ctx.getTrend4h() == MarketContext.TrendDirection.UP) {
+                logger.info("❌ SHORT rejected: 4h trend is UP — mean-reversion SHORT in 4h uptrend has poor win rate");
+                saveRejection(sym, "SHORT", "Mean-Reversion", "UPTREND_4H_BLOCK", currentPrice, rsi, momentum, 0.0);
+                return;
+            }
+
             // 1h trend filter for Mean-Reversion SHORT:
             // If 1h trend is UP and price is above VWAP, reject — shorting a pump above VWAP is too risky
             if (useTrend1hMeanRevFilter && meanReversionCondition && !volumeSpikeShort
@@ -895,17 +913,18 @@ public class HypeStrategy {
                 double price = currentPrice.doubleValue();
                 double upperBandGap = indicatorCalculator.getBBDistancePct(price, bbUpper); // <0 means price below upper band
                 boolean nearUpperBand = upperBandGap >= -bbProximityPct && upperBandGap <= 1.0; // within bbProximityPct% below or above upper band
-                boolean stoch15mOk = stochK15m > stochOversoldThreshold; // 15m not oversold
+                boolean stoch15mOk = stochK15m > stoch15mShortMin; // 15m leaning overbought (not in downtrend)
                 if (!(stochOverbought5m && nearUpperBand && stoch15mOk)) {
                     logger.info("❌ SHORT rejected by Stoch+BB: stochK5m={} (need >{}) upperBandGap={}% (need >-{}%) stochK15m={} (need >{})",
                             String.format("%.1f", stochK5m), stochOverboughtThreshold,
                             String.format("%.2f", upperBandGap), bbProximityPct,
-                            String.format("%.1f", stochK15m), stochOversoldThreshold);
+                            String.format("%.1f", stochK15m), stoch15mShortMin;
                     saveRejection(sym, "SHORT", entryType, "STOCH_BB_FILTER", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
-                logger.info("✅ Stoch+BB SHORT confirmed: stochK5m={} upperBandGap={}% stochK15m={}",
-                        String.format("%.1f", stochK5m), String.format("%.2f", upperBandGap), String.format("%.1f", stochK15m));
+                logger.info("✅ Stoch+BB SHORT confirmed: stochK5m={} upperBandGap={}% stochK15m={} (>{})",
+                        String.format("%.1f", stochK5m), String.format("%.2f", upperBandGap),
+                        String.format("%.1f", stochK15m), stoch15mShortMin);
             }
 
             // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
