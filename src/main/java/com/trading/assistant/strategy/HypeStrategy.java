@@ -593,7 +593,7 @@ public class HypeStrategy {
                     logger.info("❌ LONG rejected by Stoch+BB: stochK5m={} (need <{}) lowerBandGap={}% (need <{}%) stochK15m={} (need <{})",
                             String.format("%.1f", stochK5m), stochOversoldThreshold,
                             String.format("%.2f", lowerBandGap), bbProximityPct,
-                            String.format("%.1f", stochK15m), stoch15mLongMax;
+                            String.format("%.1f", stochK15m), stoch15mLongMax);
                     saveRejection(sym, "LONG", entryType, "STOCH_BB_FILTER", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
@@ -918,7 +918,7 @@ public class HypeStrategy {
                     logger.info("❌ SHORT rejected by Stoch+BB: stochK5m={} (need >{}) upperBandGap={}% (need >-{}%) stochK15m={} (need >{})",
                             String.format("%.1f", stochK5m), stochOverboughtThreshold,
                             String.format("%.2f", upperBandGap), bbProximityPct,
-                            String.format("%.1f", stochK15m), stoch15mShortMin;
+                            String.format("%.1f", stochK15m), stoch15mShortMin);
                     saveRejection(sym, "SHORT", entryType, "STOCH_BB_FILTER", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
