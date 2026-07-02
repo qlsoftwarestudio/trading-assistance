@@ -76,7 +76,7 @@ trading:
     trailing-activation-pct: 0.6  # Legacy — swing now uses below
     # Swing trailing (5m): tight trail to capture profit when trade works
     swing-trailing-stop-pct: 0.35     # Trail distance for 5m swing (tight to maximize captured profit)
-    swing-trailing-activation-pct: 0.6  # Activate trailing at +0.6% (after breakeven at 0.4%)
+    swing-trailing-activation-pct: 0.8  # Activate trailing at +0.8% — balance between letting winners run and protecting small gains
     breakeven-activation-pct: 0.4
     min-profit-pct: 0.15
     time-based-trail-pct: 0.5
