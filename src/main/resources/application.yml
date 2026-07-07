@@ -180,6 +180,13 @@ trading:
     # 1h trend filter: DISABLED — redundant with VWAP filter + Stoch+BB at extremes
     use-trend1h-mean-rev-filter: false
     block-short-on-4h-uptrend: true  # Block mean-reversion SHORT when 4h trend is UP — avoids shorting sustained uptrends
+    # EMA 200 daily macro filter (per-symbol)
+    # price > EMA200(1d) → only LONGs allowed | price < EMA200(1d) → only SHORTs allowed
+    ema200-filter-symbols: SOLUSDT      # Comma-separated; empty = disabled for all
+    # Per-symbol Bollinger Bands period override (SYMBOL:PERIOD,...)
+    # SOL uses BB(50) — wider bands, only deep pullbacks qualify in uptrend
+    # HYPE uses BB(20) — tighter mean (default)
+    symbol-bb-period: "SOLUSDT:50,HYPEUSDT:20"
     # Stochastic + Bollinger Bands confirmation filter
     use-stoch-bb-filter: true        # ON: entries only near BB bands + stoch confirmation
     stoch-period: 14                 # Stochastic lookback period (standard: 14)
@@ -189,7 +196,7 @@ trading:
     stoch-overbought: 85             # %K 5m threshold for SHORT confirmation (price at extremes)
     stoch-15m-long-max: 50           # 15m stoch must be BELOW this for LONG (confirming 15m is not in uptrend)
     stoch-15m-short-min: 50          # 15m stoch must be ABOVE this for SHORT (confirming 15m is not in downtrend)
-    bb-period: 20                    # Bollinger Bands SMA period (standard: 20)
+    bb-period: 20                    # Bollinger Bands SMA period — global fallback (overridden per-symbol by symbol-bb-period)
     bb-std-dev: 2.0                  # Standard deviations (standard: 2.0)
     bb-proximity-pct: 0.3            # Price must be within 0.3% of BB band — tighter = entries closer to extremes
     use-bb-based-sl: true           # Tighten SL to BB band when enabled

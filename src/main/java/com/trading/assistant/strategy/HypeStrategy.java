@@ -221,6 +221,12 @@ public class HypeStrategy {
     @Value("${trading.strategy.block-short-on-4h-uptrend:true}")
     private boolean blockShortOn4hUptrend;
 
+    @Value("${trading.strategy.ema200-filter-symbols:}")
+    private String ema200FilterSymbols;
+
+    @Value("${trading.strategy.symbol-bb-period:}")
+    private String symbolBbPeriodConfig;
+
     @Value("${trading.strategy.bb-period:20}")
     private int bbPeriod;
 
@@ -333,8 +339,8 @@ public class HypeStrategy {
                 }
             }
 
-            // 2. Core technical indicators (15m)
-            List<Kline> klines = binanceClient.getKlines(sym, timeframe, 50);
+            // 2. Core technical indicators (5m) — fetch 100 to cover BB(50) + regression(50) + buffer
+            List<Kline> klines = binanceClient.getKlines(sym, timeframe, 100);
 
             if (klines == null || klines.isEmpty()) {
                 logger.error("No kline data available. Skipping strategy execution.");
@@ -421,7 +427,8 @@ public class HypeStrategy {
 
             // Stochastic Oscillator + Bollinger Bands (5m current TF + 15m filter)
             double[] stoch5m = indicatorCalculator.calculateStochastic(klines, stochPeriod, stochSmoothK, stochSmoothD);
-            double[] bb5m    = indicatorCalculator.calculateBollingerBands(klines, bbPeriod, bbStdDev);
+            int symbolBbPeriod = getSymbolBbPeriod(sym);
+            double[] bb5m    = indicatorCalculator.calculateBollingerBands(klines, symbolBbPeriod, bbStdDev);
             double stochK5m = stoch5m[0], stochD5m = stoch5m[1];
             double bbUpper = bb5m[0], bbMid = bb5m[1], bbLower = bb5m[2];
 
@@ -431,14 +438,27 @@ public class HypeStrategy {
             double stochK15m = stoch15m[0];
 
             if (useStochBbFilter) {
-                logger.info("📈 Stoch+BB | %K5m={} %D5m={} %K15m={} | BB upper={} mid={} lower={}",
+                logger.info("📈 Stoch+BB | %K5m={} %D5m={} %K15m={} | BB({}) upper={} mid={} lower={}",
                         String.format("%.1f", stochK5m), String.format("%.1f", stochD5m),
-                        String.format("%.1f", stochK15m),
+                        String.format("%.1f", stochK15m), symbolBbPeriod,
                         String.format("%.4f", bbUpper), String.format("%.4f", bbMid), String.format("%.4f", bbLower));
             }
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected, currentKline, klines);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected, currentKline, klines);
+            // EMA 200 daily: macro trend gate (per-symbol, fetched once per cycle)
+            double ema200Daily = 0;
+            if (isEma200FilterActive(sym)) {
+                ema200Daily = fetchEma200Daily(sym);
+                if (ema200Daily > 0) {
+                    String macroTrend = currentPrice.doubleValue() > ema200Daily ? "UP ✅" : "DOWN ⚠️";
+                    logger.info("📊 EMA200(1d)={} | price={} | macro={}",
+                            String.format("%.4f", ema200Daily),
+                            String.format("%.4f", currentPrice.doubleValue()),
+                            macroTrend);
+                }
+            }
+
+            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected, currentKline, klines, ema200Daily);
+            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected, currentKline, klines, ema200Daily);
 
             // Update trailing stops and time exits for open trades (data already fetched above)
             tradeManager.updateTrailingAndTimeExit(sym, userId, currentPrice, currentKline, projection);
@@ -461,7 +481,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected, Kline currentKline, List<Kline> klines) {
+    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected, Kline currentKline, List<Kline> klines, double ema200Daily) {
         boolean rsiReversingUp = rsi > previousRsi;
         boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
         boolean extremeOversold = rsi < emaExtremeRsiThreshold;
@@ -495,6 +515,15 @@ public class HypeStrategy {
         if (meanReversionCondition || breakoutCondition || trendDipCondition) {
             if (tradeManager.hasOpenPosition(sym, userId, "LONG")) {
                 logger.info("LONG position already open for userId={} symbol={}. Skipping.", userId, sym);
+                return;
+            }
+
+            // EMA 200 daily macro filter: only LONG when price is above EMA200(1d) — macro trend must be UP
+            if (ema200Daily > 0 && currentPrice.doubleValue() < ema200Daily) {
+                logger.info("❌ LONG rejected: price {} < EMA200(1d) {} — macro trend DOWN, only SHORTs allowed for {}",
+                        String.format("%.4f", currentPrice.doubleValue()), String.format("%.4f", ema200Daily), sym);
+                saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                        "EMA200_MACRO_FILTER", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -722,7 +751,7 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected, Kline currentKline, List<Kline> klines) {
+    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected, Kline currentKline, List<Kline> klines, double ema200Daily) {
         boolean rsiReversingDown = rsi < previousRsi;
 
         // Dynamic RSI threshold: higher bar when shorting into strong uptrend
@@ -782,6 +811,15 @@ public class HypeStrategy {
         if (meanReversionCondition || breakoutCondition || trendDipShortCondition) {
             if (tradeManager.hasOpenPosition(sym, userId, "SHORT")) {
                 logger.info("SHORT position already open for userId={} symbol={}. Skipping.", userId, sym);
+                return;
+            }
+
+            // EMA 200 daily macro filter: only SHORT when price is below EMA200(1d) — macro trend must be DOWN
+            if (ema200Daily > 0 && currentPrice.doubleValue() > ema200Daily) {
+                logger.info("❌ SHORT rejected: price {} > EMA200(1d) {} — macro trend UP, only LONGs allowed for {}",
+                        String.format("%.4f", currentPrice.doubleValue()), String.format("%.4f", ema200Daily), sym);
+                saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                        "EMA200_MACRO_FILTER", currentPrice, rsi, momentum, 0.0);
                 return;
             }
 
@@ -1212,6 +1250,41 @@ public class HypeStrategy {
             }
         } catch (Exception e) {
             logger.debug("Failed to save rejection: {}", e.getMessage());
+        }
+    }
+
+    // ============== Per-symbol config helpers ==============
+
+    private int getSymbolBbPeriod(String sym) {
+        if (symbolBbPeriodConfig != null && !symbolBbPeriodConfig.isEmpty()) {
+            for (String entry : symbolBbPeriodConfig.split(",")) {
+                String[] parts = entry.trim().split(":");
+                if (parts.length == 2 && parts[0].trim().equalsIgnoreCase(sym)) {
+                    try { return Integer.parseInt(parts[1].trim()); } catch (NumberFormatException ignored) {}
+                }
+            }
+        }
+        return bbPeriod;
+    }
+
+    private boolean isEma200FilterActive(String sym) {
+        if (ema200FilterSymbols == null || ema200FilterSymbols.isEmpty()) return false;
+        return java.util.Arrays.stream(ema200FilterSymbols.split(","))
+                .map(String::trim).anyMatch(s -> s.equalsIgnoreCase(sym));
+    }
+
+    private double fetchEma200Daily(String sym) {
+        try {
+            List<Kline> dailyKlines = binanceClient.getKlines(sym, "1d", 210);
+            if (dailyKlines == null || dailyKlines.size() < 200) {
+                logger.warn("⚠️ EMA200 daily: not enough 1d data for {} ({} candles)",
+                        sym, dailyKlines == null ? 0 : dailyKlines.size());
+                return 0;
+            }
+            return indicatorCalculator.calculateEMAFromKlines(dailyKlines, 200);
+        } catch (Exception e) {
+            logger.warn("⚠️ EMA200 daily fetch failed for {}: {}", sym, e.getMessage());
+            return 0;
         }
     }
 
