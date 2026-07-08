@@ -136,8 +136,9 @@ public class BingXClient implements ExchangeClient {
             JsonNode root = mapper.readTree(response);
             if (root.path("code").asInt() == 0) {
                 JsonNode balance = root.path("data").path("balance");
-                String available = balance.path("availableMargin").asText("0");
-                return new BigDecimal(available);
+                // Use equity (total balance + unrealized PnL) for portfolio display
+                String equity = balance.path("equity").asText("0");
+                return new BigDecimal(equity);
             }
             logger.warn("BingX getBalance unexpected response: {}", response);
             return BigDecimal.ZERO;

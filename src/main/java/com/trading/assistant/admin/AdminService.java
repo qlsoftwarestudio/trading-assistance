@@ -23,10 +23,10 @@ public class AdminService {
     private SignalRepository signalRepository;
 
     // Strategy config values (injected from application.yml / env vars)
-    @Value("${trading.strategy.symbols:HYPEUSDT}")
+    @Value("${trading.strategy.symbols:SOLUSDT}")
     private String symbols;
 
-    @Value("${trading.strategy.symbol:HYPEUSDT}")
+    @Value("${trading.strategy.symbol:SOLUSDT}")
     private String symbol;
 
     @Value("${trading.strategy.timeframe:5m}")
@@ -179,8 +179,26 @@ public class AdminService {
     @Value("${telegram.bot.enabled:false}")
     private boolean telegramEnabled;
 
-    @Value("${binance.testnet:false}")
-    private boolean binanceTestnet;
+    @Value("${exchange.active:binance}")
+    private String activeExchange;
+
+    @Value("${trading.strategy.symbol-session-utc:}")
+    private String symbolSessionUtc;
+
+    @Value("${trading.strategy.symbol-rsi-oversold:}")
+    private String symbolRsiOversold;
+
+    @Value("${trading.strategy.symbol-rsi-overbought:}")
+    private String symbolRsiOverbought;
+
+    @Value("${trading.strategy.symbol-bb-period:}")
+    private String symbolBbPeriod;
+
+    @Value("${trading.strategy.swing-trailing-stop-pct:0.35}")
+    private double swingTrailingStopPct;
+
+    @Value("${trading.strategy.swing-trailing-activation-pct:0.8}")
+    private double swingTrailingActivationPct;
 
     /**
      * Returns all current strategy and system configuration values.
@@ -248,7 +266,13 @@ public class AdminService {
         config.put("rsiOverboughtUptrend", rsiOverboughtUptrend);
 
         config.put("telegramEnabled", telegramEnabled);
-        config.put("binanceTestnet", binanceTestnet);
+        config.put("activeExchange", activeExchange);
+        config.put("symbolSessionUtc", symbolSessionUtc);
+        config.put("symbolRsiOversold", symbolRsiOversold);
+        config.put("symbolRsiOverbought", symbolRsiOverbought);
+        config.put("symbolBbPeriod", symbolBbPeriod);
+        config.put("swingTrailingStopPct", swingTrailingStopPct);
+        config.put("swingTrailingActivationPct", swingTrailingActivationPct);
 
         return config;
     }
@@ -264,7 +288,7 @@ public class AdminService {
         health.put("symbol", symbol);
         health.put("timeframe", timeframe);
         health.put("telegramEnabled", telegramEnabled);
-        health.put("binanceTestnet", binanceTestnet);
+        health.put("activeExchange", activeExchange);
 
         long openTrades = Optional.ofNullable(tradeRepository.countByStatus("OPEN")).orElse(0L);
         long totalTrades = tradeRepository.count();
