@@ -142,6 +142,15 @@ public class TradeManager {
     @Value("${trading.strategy.sl-cooldown-minutes:10}")
     private int slCooldownMinutes;
 
+    @Value("${trading.strategy.partial-tp-enabled:true}")
+    private boolean partialTpEnabled;
+
+    @Value("${trading.strategy.re-entry-enabled:true}")
+    private boolean reEntryEnabled;
+
+    @Value("${trading.strategy.re-entry-window-minutes:15}")
+    private int reEntryWindowMinutes;
+
     @Value("${trading.risk.max-daily-loss-pct:5.0}")
     private double maxDailyLossPct;
 
@@ -190,6 +199,7 @@ public class TradeManager {
     private double bbSlBufferPct;
 
     private final Map<String, LocalDateTime> lastSlTime = new ConcurrentHashMap<>();
+    private final Map<String, LocalDateTime> lastSLBySymbolDir = new ConcurrentHashMap<>();
     private final Map<Long, BigDecimal> tradePeakPrices = new ConcurrentHashMap<>();
     private final Map<Long, Double> tradeEntryMomentum = new ConcurrentHashMap<>();
     private final Map<Long, JournalEntryData> tradeJournalData = new ConcurrentHashMap<>();
@@ -326,6 +336,15 @@ public class TradeManager {
             return true;
         }
         return false;
+    }
+
+    public boolean isReEntryEligible(String symbol, String action) {
+        if (!reEntryEnabled) return false;
+        String key = symbol + "_" + action;
+        LocalDateTime lastSL = lastSLBySymbolDir.get(key);
+        if (lastSL == null) return false;
+        long elapsed = Duration.between(lastSL, LocalDateTime.now()).toMinutes();
+        return elapsed < reEntryWindowMinutes;
     }
 
     private BigDecimal calculateFixedStopLoss(BigDecimal currentPrice, boolean isLong, String tradeSymbol) {
@@ -695,8 +714,8 @@ public class TradeManager {
                 return;
             }
 
-            // Check SL cooldown
-            if (isCoolingDown(action)) {
+            // Check SL cooldown (re-entries bypass cooldown intentionally)
+            if (!signal.isReEntry() && isCoolingDown(action)) {
                 return;
             }
 
@@ -737,6 +756,11 @@ public class TradeManager {
             BigDecimal rawPositionSize = balance
                     .multiply(BigDecimal.valueOf(effectivePositionSizePct))
                     .divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
+            if (signal.getPositionSizeFactor() > 0 && signal.getPositionSizeFactor() < 1.0) {
+                rawPositionSize = rawPositionSize.multiply(BigDecimal.valueOf(signal.getPositionSizeFactor()));
+                logger.info("🔁 Re-entry: position size reduced to {}% of normal",
+                        String.format("%.0f", signal.getPositionSizeFactor() * 100));
+            }
             BigDecimal positionSize = rawPositionSize
                     .divide(BigDecimal.valueOf(remainingSlots), 8, RoundingMode.HALF_UP);
 
@@ -879,6 +903,12 @@ public class TradeManager {
                 trade.setBinanceOrderId(orderId);
                 trade.setSetupType(signal.getSetupType());
                 if (signal.getUserId() != null) trade.setUserId(signal.getUserId());
+                BigDecimal riskAmt = isLong ? currentPrice.subtract(stopLoss) : stopLoss.subtract(currentPrice);
+                if (riskAmt.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal tp1 = isLong ? currentPrice.add(riskAmt) : currentPrice.subtract(riskAmt);
+                    trade.setTp1Price(tp1.setScale(8, RoundingMode.HALF_UP));
+                }
+                trade.setPartialClosed(false);
                 tradeRepository.save(trade);
 
                 // Initialize trailing stop tracking and momentum tracking
@@ -1024,7 +1054,16 @@ public class TradeManager {
                 }
             }
 
-            // Check Take Profit
+            // Check Partial TP1 (1:1 R) — close 50%, move SL to breakeven
+            if (partialTpEnabled && !trade.isPartialClosed() && trade.getTp1Price() != null) {
+                if (isLong && currentPrice.compareTo(trade.getTp1Price()) >= 0) {
+                    handlePartialTakeProfit(trade, currentPrice);
+                } else if (!isLong && currentPrice.compareTo(trade.getTp1Price()) <= 0) {
+                    handlePartialTakeProfit(trade, currentPrice);
+                }
+            }
+
+            // Check Take Profit (TP2 = full close)
             if (isLong) {
                 if (currentPrice.compareTo(trade.getTakeProfit()) >= 0) {
                     logger.info("🎯 Local TP hit for LONG Trade {}. Poll price {} >= TP {} → exiting at TP price",
@@ -1044,6 +1083,48 @@ public class TradeManager {
         } catch (Exception e) {
             logger.error("Error checking SL/TP for Trade {}: {}", trade.getId(), e.getMessage());
             return false;
+        }
+    }
+
+    private void handlePartialTakeProfit(Trade trade, BigDecimal currentPrice) {
+        try {
+            boolean isLong = "LONG".equals(trade.getAction());
+            String sym = trade.getSymbol();
+            String[] botCreds = resolveBotCredentials(trade.getUserId(), sym);
+            BigDecimal halfQty = trade.getQuantity().divide(new BigDecimal("2"), 8, RoundingMode.HALF_DOWN);
+            halfQty = binanceClient.roundQuantityForSymbol(sym, halfQty);
+            if (halfQty.compareTo(BigDecimal.ZERO) <= 0) return;
+
+            String orderId = null;
+            if (botCreds != null) {
+                orderId = isLong
+                        ? binanceClient.placeSellOrderForBot(halfQty, botCreds[0], botCreds[1], sym)
+                        : binanceClient.placeShortBuyOrderForBot(halfQty, botCreds[0], botCreds[1], sym);
+            }
+            if (orderId == null) {
+                orderId = isLong
+                        ? binanceClient.placeSellOrderForSymbol(sym, halfQty)
+                        : binanceClient.placeShortBuyOrderForSymbol(sym, halfQty);
+            }
+
+            if (orderId != null) {
+                BigDecimal remaining = trade.getQuantity().subtract(halfQty);
+                trade.setQuantity(remaining);
+                trade.setStopLoss(trade.getEntryPrice());
+                trade.setPartialClosed(true);
+                tradeRepository.save(trade);
+                logger.info("✂️ Partial TP1 hit for {} Trade {}. Closed 50% ({}) at {}. SL → breakeven ({}). Remaining: {}",
+                        trade.getAction(), trade.getId(), halfQty, currentPrice,
+                        trade.getEntryPrice(), remaining);
+                telegramBot.sendAlert("✂️ Partial TP1",
+                        String.format("%s %s: cerr\u00f3 50%% en $%s. SL movido a breakeven $%s",
+                                trade.getAction(), sym, currentPrice.setScale(4, RoundingMode.HALF_UP),
+                                trade.getEntryPrice().setScale(4, RoundingMode.HALF_UP)));
+            } else {
+                logger.warn("⚠️ Partial TP1 order failed for Trade {} — will retry next cycle", trade.getId());
+            }
+        } catch (Exception e) {
+            logger.error("Error in handlePartialTakeProfit for Trade {}: {}", trade.getId(), e.getMessage());
         }
     }
 
@@ -1637,6 +1718,7 @@ public class TradeManager {
 
             if ("STOP_LOSS".equals(reason)) {
                 lastSlTime.put(trade.getAction(), LocalDateTime.now());
+                lastSLBySymbolDir.put(tradeSymbol + "_" + trade.getAction(), LocalDateTime.now());
                 logger.info("⏸️ SL cooldown started for {} - no new {} entries for {} min",
                         trade.getAction(), trade.getAction(), slCooldownMinutes);
             }

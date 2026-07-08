@@ -48,6 +48,12 @@ public class Trade {
     @Column(precision = 20, scale = 8)
     private BigDecimal takeProfit;
 
+    @Column(name = "tp1_price", precision = 20, scale = 8)
+    private BigDecimal tp1Price;
+
+    @Column(name = "partial_closed")
+    private Boolean partialClosed;
+
     @Column(precision = 20, scale = 8)
     private BigDecimal pnl;
 
@@ -145,6 +151,12 @@ public class Trade {
 
     public BigDecimal getTakeProfit() { return takeProfit; }
     public void setTakeProfit(BigDecimal takeProfit) { this.takeProfit = takeProfit; }
+
+    public BigDecimal getTp1Price() { return tp1Price; }
+    public void setTp1Price(BigDecimal tp1Price) { this.tp1Price = tp1Price; }
+
+    public boolean isPartialClosed() { return Boolean.TRUE.equals(partialClosed); }
+    public void setPartialClosed(Boolean partialClosed) { this.partialClosed = partialClosed; }
 
     public BigDecimal getPnl() { return pnl; }
     public void setPnl(BigDecimal pnl) { this.pnl = pnl; }

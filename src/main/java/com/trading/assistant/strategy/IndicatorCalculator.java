@@ -3,6 +3,7 @@ package com.trading.assistant.strategy;
 import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.strategy.model.LinearRegressionChannel;
 import com.trading.assistant.strategy.model.PriceProjection;
+import com.trading.assistant.strategy.model.RangeBreakoutResult;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -800,5 +801,54 @@ public class IndicatorCalculator {
         boolean smallRange  = candleRange < atr * rangeMultiplier;
 
         return volumeSpike && smallRange;
+    }
+
+    // ============== RANGE BREAKOUT ==============
+
+    /**
+     * Detects a breakout from a consolidation range.
+     * Range is defined by the last N candles (excluding the current one).
+     * Breakout is confirmed when current close breaks above/below range with high volume.
+     * Range must be compressed (tight) to avoid false signals in trending markets.
+     */
+    public RangeBreakoutResult detectRangeBreakout(List<Kline> klines, int lookback,
+                                                    double maxRangePct, double volumeMultiplier) {
+        if (klines == null || klines.size() < lookback + 1) return null;
+
+        List<Kline> rangeCandles = klines.subList(klines.size() - 1 - lookback, klines.size() - 1);
+        Kline current = klines.get(klines.size() - 1);
+
+        double rangeHigh = rangeCandles.stream()
+                .mapToDouble(k -> k.getHigh() != null ? k.getHigh().doubleValue() : 0)
+                .max().orElse(0);
+        double rangeLow = rangeCandles.stream()
+                .mapToDouble(k -> k.getLow() != null ? k.getLow().doubleValue() : Double.MAX_VALUE)
+                .min().orElse(Double.MAX_VALUE);
+
+        if (rangeHigh <= 0 || rangeLow <= 0 || rangeLow >= rangeHigh) return null;
+
+        double rangePct = (rangeHigh - rangeLow) / rangeLow * 100.0;
+        if (rangePct > maxRangePct) return null;
+
+        double avgVolume = rangeCandles.stream()
+                .mapToDouble(k -> k.getVolume() != null ? k.getVolume().doubleValue() : 0)
+                .average().orElse(0);
+        double currentVolume = current.getVolume() != null ? current.getVolume().doubleValue() : 0;
+        if (avgVolume <= 0 || currentVolume < avgVolume * volumeMultiplier) return null;
+
+        double currentClose = current.getClose() != null ? current.getClose().doubleValue() : 0;
+        if (currentClose <= 0) return null;
+
+        if (currentClose > rangeHigh) {
+            double sl = rangeLow * 1.001;
+            return new RangeBreakoutResult("LONG", rangeHigh, rangeLow, rangePct,
+                    currentVolume / avgVolume, sl);
+        }
+        if (currentClose < rangeLow) {
+            double sl = rangeHigh * 0.999;
+            return new RangeBreakoutResult("SHORT", rangeHigh, rangeLow, rangePct,
+                    currentVolume / avgVolume, sl);
+        }
+        return null;
     }
 }

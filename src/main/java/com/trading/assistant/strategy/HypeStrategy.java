@@ -3,6 +3,7 @@ package com.trading.assistant.strategy;
 import com.trading.assistant.binance.ExchangeClient;
 import com.trading.assistant.strategy.model.LinearRegressionChannel;
 import com.trading.assistant.strategy.model.PriceProjection;
+import com.trading.assistant.strategy.model.RangeBreakoutResult;
 import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.execution.TradeManager;
 import com.trading.assistant.notification.TelegramBot;
@@ -306,6 +307,18 @@ public class HypeStrategy {
     @Value("${trading.strategy.symbol-rsi-overbought:}")
     private String symbolRsiOverboughtConfig;
 
+    @Value("${trading.strategy.use-range-breakout:true}")
+    private boolean useRangeBreakout;
+
+    @Value("${trading.strategy.breakout-lookback:20}")
+    private int breakoutLookback;
+
+    @Value("${trading.strategy.breakout-max-range-pct:2.5}")
+    private double breakoutMaxRangePct;
+
+    @Value("${trading.strategy.breakout-volume-multiplier:2.5}")
+    private double breakoutVolumeMultiplier;
+
     @Scheduled(fixedRate = 60000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -483,6 +496,13 @@ public class HypeStrategy {
 
             evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected, currentKline, klines, ema200Daily);
             evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected, currentKline, klines, ema200Daily);
+
+            // Breakout strategy — evaluated only when no mean-reversion position is open
+            if (useRangeBreakout
+                    && !tradeManager.hasOpenPosition(sym, userId, "LONG")
+                    && !tradeManager.hasOpenPosition(sym, userId, "SHORT")) {
+                evaluateBreakoutEntry(currentPrice, klines, sym, userId, marketContext);
+            }
 
             // Update trailing stops and time exits for open trades (data already fetched above)
             tradeManager.updateTrailingAndTimeExit(sym, userId, currentPrice, currentKline, projection);
@@ -762,6 +782,11 @@ public class HypeStrategy {
                 note = note + (note.isEmpty() ? "" : "\n\n") + channel.toAlertString();
             }
             if (!note.isEmpty()) signal.setProjectionNote(note);
+            if (tradeManager.isReEntryEligible(sym, "LONG")) {
+                signal.setReEntry(true);
+                signal.setPositionSizeFactor(0.5);
+                logger.info("🔁 Re-entry eligible for LONG {} — using 50% position size", sym);
+            }
             signalRepository.save(signal);
             tradeManager.executeLongEntry(signal);
         } else {
@@ -1077,6 +1102,11 @@ public class HypeStrategy {
                 note = note + (note.isEmpty() ? "" : "\n\n") + channel.toAlertString();
             }
             if (!note.isEmpty()) signal.setProjectionNote(note);
+            if (tradeManager.isReEntryEligible(sym, "SHORT")) {
+                signal.setReEntry(true);
+                signal.setPositionSizeFactor(0.5);
+                logger.info("🔁 Re-entry eligible for SHORT {} — using 50% position size", sym);
+            }
             signalRepository.save(signal);
             tradeManager.executeShortEntry(signal);
         } else {
@@ -1089,6 +1119,45 @@ public class HypeStrategy {
                     100 - trendDipRsiThreshold, rsi > (100 - trendDipRsiThreshold),
                     channelUp, channel != null ? String.format("%.3f", channel.getSlopePct()) : "N/A",
                     strongUptrend ? " [uptrend-mode]" : "");
+        }
+    }
+
+    private void evaluateBreakoutEntry(BigDecimal currentPrice, List<Kline> klines,
+                                        String sym, Long userId, MarketContext ctx) {
+        RangeBreakoutResult breakout = indicatorCalculator.detectRangeBreakout(
+                klines, breakoutLookback, breakoutMaxRangePct, breakoutVolumeMultiplier);
+        if (breakout == null) return;
+
+        boolean isLong = "LONG".equals(breakout.getDirection());
+
+        if (tradeManager.hasOpenPosition(sym, userId, breakout.getDirection())) return;
+
+        logger.info("💥 BREAKOUT {} detected for {}! Range: {}-{} ({}%), Vol: {}x, SL: {}",
+                breakout.getDirection(), sym,
+                String.format("%.4f", breakout.getRangeLow()),
+                String.format("%.4f", breakout.getRangeHigh()),
+                String.format("%.2f", breakout.getRangePct()),
+                String.format("%.1f", breakout.getVolumeRatio()),
+                String.format("%.4f", breakout.getBreakoutSl()));
+
+        Signal signal = new Signal();
+        signal.setSymbol(sym);
+        signal.setAction(breakout.getDirection());
+        signal.setPrice(currentPrice);
+        signal.setSetupType(isLong ? "BREAKOUT_LONG" : "BREAKOUT_SHORT");
+        signal.setUserId(userId);
+        if (ctx != null) enrichSignalWithContext(signal, ctx);
+
+        if (tradeManager.isReEntryEligible(sym, breakout.getDirection())) {
+            signal.setReEntry(true);
+            signal.setPositionSizeFactor(0.5);
+        }
+
+        signalRepository.save(signal);
+        if (isLong) {
+            tradeManager.executeLongEntry(signal);
+        } else {
+            tradeManager.executeShortEntry(signal);
         }
     }
 

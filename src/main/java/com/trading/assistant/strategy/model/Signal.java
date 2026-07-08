@@ -96,6 +96,12 @@ public class Signal {
     @Transient
     private Double stochD5m;
 
+    @Transient
+    private boolean reEntry = false;
+
+    @Transient
+    private double positionSizeFactor = 1.0;
+
     @PrePersist
     protected void onCreate() {
         generatedAt = LocalDateTime.now();
@@ -218,6 +224,12 @@ public class Signal {
 
     public Double getStochD5m() { return stochD5m; }
     public void setStochD5m(Double stochD5m) { this.stochD5m = stochD5m; }
+
+    public boolean isReEntry() { return reEntry; }
+    public void setReEntry(boolean reEntry) { this.reEntry = reEntry; }
+
+    public double getPositionSizeFactor() { return positionSizeFactor; }
+    public void setPositionSizeFactor(double positionSizeFactor) { this.positionSizeFactor = positionSizeFactor; }
 
     @Override
     public String toString() {

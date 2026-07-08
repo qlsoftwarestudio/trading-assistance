@@ -101,6 +101,16 @@ trading:
     time-based-trail-pct: 0.5
     time-threshold-min: 10
     sl-cooldown-minutes: 10
+    # Partial TP: close 50% at 1:1 R, move SL to breakeven, trail remaining 50% to full TP
+    partial-tp-enabled: true
+    # Re-entry: if SL was hit < re-entry-window-minutes ago and setup still valid, allow entry with 50% size
+    re-entry-enabled: true
+    re-entry-window-minutes: 15
+    # Range Breakout Strategy: enter on confirmed breakout of a tight consolidation range
+    use-range-breakout: true
+    breakout-lookback: 20
+    breakout-max-range-pct: 2.5
+    breakout-volume-multiplier: 2.5
     min-sl-update-distance-pct: 0.1  # Min distance between current price and new SL before updating Binance (avoids "immediately trigger" errors)
     # Dynamic position sizing: adjust size based on volatility (ATR)
     position-size-volatility-adjust: true
