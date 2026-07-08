@@ -1,6 +1,6 @@
 package com.trading.assistant.portfolio;
 
-import com.trading.assistant.binance.BinanceClient;
+import com.trading.assistant.binance.ExchangeClient;
 import com.trading.assistant.portfolio.model.DailyMetrics;
 import com.trading.assistant.portfolio.model.Trade;
 import com.trading.assistant.portfolio.repository.DailyMetricsRepository;
@@ -39,7 +39,7 @@ public class PortfolioService {
     private DailyMetricsRepository dailyMetricsRepository;
 
     @Autowired
-    private BinanceClient binanceClient;
+    private ExchangeClient binanceClient;
 
     @Autowired
     private UserRepository userRepository;
@@ -200,9 +200,9 @@ public class PortfolioService {
         summary.put("maxDrawdown", calculateMaxDrawdown(symbol, userId));
 
         // Current price
-        BigDecimal currentPrice = symbol != null && !symbol.isEmpty()
+        BigDecimal currentPrice = (symbol != null && !symbol.isEmpty())
                 ? binanceClient.getPrice(symbol)
-                : binanceClient.getCurrentPrice();
+                : binanceClient.getPrice("SOLUSDT");
         summary.put("currentPrice", currentPrice);
 
         // Prices for all configured symbols (best-effort, silently skip unavailable)

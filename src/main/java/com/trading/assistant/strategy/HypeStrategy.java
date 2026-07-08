@@ -1,6 +1,6 @@
 package com.trading.assistant.strategy;
 
-import com.trading.assistant.binance.BinanceClient;
+import com.trading.assistant.binance.ExchangeClient;
 import com.trading.assistant.strategy.model.LinearRegressionChannel;
 import com.trading.assistant.strategy.model.PriceProjection;
 import com.trading.assistant.binance.model.Kline;
@@ -31,7 +31,7 @@ public class HypeStrategy {
     private static final Logger logger = LoggerFactory.getLogger(HypeStrategy.class);
 
     @Autowired
-    private BinanceClient binanceClient;
+    private ExchangeClient binanceClient;
 
     @Autowired
     private IndicatorCalculator indicatorCalculator;
@@ -294,6 +294,18 @@ public class HypeStrategy {
     @Value("${trading.session-filter.asia-end:8}")
     private int asiaEndHour;
 
+    // Per-symbol active session (UTC hours). Format: "EURUSDT:8-17,XAGUSDT:8-21"
+    // If a symbol has no entry, it trades 24/7 (no session restriction).
+    @Value("${trading.strategy.symbol-session-utc:}")
+    private String symbolSessionConfig;
+
+    // Per-symbol RSI threshold overrides. Format: "EURUSDT:35,XAGUSDT:30"
+    @Value("${trading.strategy.symbol-rsi-oversold:}")
+    private String symbolRsiOversoldConfig;
+
+    @Value("${trading.strategy.symbol-rsi-overbought:}")
+    private String symbolRsiOverboughtConfig;
+
     @Scheduled(fixedRate = 60000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -325,9 +337,21 @@ public class HypeStrategy {
     }
 
     private void executeStrategyForSymbol(String sym, Long userId) {
-        logger.info("Executing {} 5m swing strategy...", sym);
+        // Per-symbol session gate: skip if outside configured trading hours
+        if (!isSymbolInSession(sym)) {
+            logger.info("⏰ {} outside active session (UTC) — skipping.", sym);
+            return;
+        }
+
+        // Temporarily apply per-symbol RSI thresholds (restored after evaluate)
+        double savedRsiOversold   = rsiOversold;
+        double savedRsiOverbought = rsiOverbought;
+        rsiOversold   = getSymbolRsiOversold(sym);
+        rsiOverbought = getSymbolRsiOverbought(sym);
 
         try {
+            logger.info("Executing {} 5m swing strategy... [rsiOversold={}, rsiOverbought={}]", sym,
+                    String.format("%.0f", rsiOversold), String.format("%.0f", rsiOverbought));
             // 1. Market context analysis (multi-timeframe, volume, BTC)
             MarketContext marketContext = null;
             if (contextEnabled) {
@@ -478,6 +502,9 @@ public class HypeStrategy {
             } catch (Exception te) {
                 logger.warn("Failed to send Telegram alert during error handling: {}", te.getMessage());
             }
+        } finally {
+            rsiOversold   = savedRsiOversold;
+            rsiOverbought = savedRsiOverbought;
         }
     }
 
@@ -1265,6 +1292,49 @@ public class HypeStrategy {
             }
         }
         return bbPeriod;
+    }
+
+    /**
+     * Returns true if sym has no session restriction, or if current UTC hour is within the
+     * configured window. Format: "EURUSDT:8-17,XAGUSDT:8-21"
+     */
+    private boolean isSymbolInSession(String sym) {
+        if (symbolSessionConfig == null || symbolSessionConfig.isBlank()) return true;
+        for (String entry : symbolSessionConfig.split(",")) {
+            String[] parts = entry.trim().split(":");
+            if (parts.length == 2 && parts[0].trim().equalsIgnoreCase(sym)) {
+                String[] hours = parts[1].split("-");
+                if (hours.length == 2) {
+                    try {
+                        int start = Integer.parseInt(hours[0].trim());
+                        int end   = Integer.parseInt(hours[1].trim());
+                        int utcH  = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).getHour();
+                        return utcH >= start && utcH < end;
+                    } catch (NumberFormatException ignored) {}
+                }
+                return true;
+            }
+        }
+        return true;
+    }
+
+    private double getSymbolRsiOversold(String sym) {
+        return parseSymbolDoubleConfig(symbolRsiOversoldConfig, sym, rsiOversold);
+    }
+
+    private double getSymbolRsiOverbought(String sym) {
+        return parseSymbolDoubleConfig(symbolRsiOverboughtConfig, sym, rsiOverbought);
+    }
+
+    private double parseSymbolDoubleConfig(String config, String sym, double defaultVal) {
+        if (config == null || config.isBlank()) return defaultVal;
+        for (String entry : config.split(",")) {
+            String[] parts = entry.trim().split(":");
+            if (parts.length == 2 && parts[0].trim().equalsIgnoreCase(sym)) {
+                try { return Double.parseDouble(parts[1].trim()); } catch (NumberFormatException ignored) {}
+            }
+        }
+        return defaultVal;
     }
 
     private boolean isEma200FilterActive(String sym) {

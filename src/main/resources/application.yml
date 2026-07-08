@@ -42,6 +42,10 @@ app:
     login-max-attempts: ${APP_RATE_LIMIT_LOGIN_MAX:5}
     login-window-seconds: ${APP_RATE_LIMIT_LOGIN_WINDOW_SECONDS:60}
 
+# Exchange selection: "binance" or "bingx"
+exchange:
+  active: ${EXCHANGE_ACTIVE:binance}
+
 binance:
   api:
     key: ${BINANCE_API_KEY:}
@@ -50,10 +54,16 @@ binance:
     websocket-url: ${BINANCE_WS_URL:wss://testnet.binancefuture.com/ws}
   testnet: ${BINANCE_TESTNET:false}
 
+bingx:
+  api:
+    key: ${BINGX_API_KEY:}
+    secret: ${BINGX_SECRET_KEY:}
+    base-url: ${BINGX_BASE_URL:https://open-api.bingx.com}
+
 # Trading Strategy Configuration
 trading:
   strategy:
-    symbols: HYPEUSDT,SOLUSDT
+    symbols: ${TRADING_STRATEGY_SYMBOLS:SOLUSDT,EURUSDT,XAGUSDT}
     timeframe: 5m
     rsi-length: 7
     rsi-oversold: 30
@@ -71,7 +81,16 @@ trading:
     require-rsi-reversal: false    # OFF: Stoch+BB + Liquidity Sweep + Rejection Candle are sufficient confirmation
     # Risk Management
     use-atr-stop: true           # ENABLED: ATR-based SL with 2:1 auto TP
-    symbol-risk-config: "HYPEUSDT:1.5:3.0,SOLUSDT:2.5:5.0"  # Fallback: HYPE 1.5%/3.0%, SOL 2.5%/5.0% (2:1 R:R)
+    # Per-symbol SL%:TP% (2:1 R:R minimum). Forex/commodities need tighter SL.
+    symbol-risk-config: ${TRADING_STRATEGY_SYMBOL_RISK_CONFIG:SOLUSDT:2.5:5.0,EURUSDT:0.25:0.60,XAGUSDT:0.4:1.0}
+    # Per-symbol Bollinger Band period
+    symbol-bb-period: ${TRADING_STRATEGY_SYMBOL_BB_PERIOD:SOLUSDT:20,EURUSDT:25,XAGUSDT:20}
+    # Per-symbol RSI thresholds (forex tends to be less extreme than crypto)
+    symbol-rsi-oversold: ${TRADING_STRATEGY_SYMBOL_RSI_OVERSOLD:EURUSDT:35,XAGUSDT:32}
+    symbol-rsi-overbought: ${TRADING_STRATEGY_SYMBOL_RSI_OVERBOUGHT:EURUSDT:65,XAGUSDT:68}
+    # Per-symbol trading session (UTC hours). No entry = 24/7.
+    # EUR/USD: London+NY 08-17 UTC | XAG: London+NY+Commodities 08-21 UTC
+    symbol-session-utc: ${TRADING_STRATEGY_SYMBOL_SESSION_UTC:EURUSDT:8-17,XAGUSDT:8-21}
     trailing-stop-pct: 0.6        # Legacy — swing now uses below
     trailing-activation-pct: 0.6  # Legacy — swing now uses below
     # Swing trailing (5m): tight trail to capture profit when trade works
@@ -230,6 +249,7 @@ trading:
     require-confluence: false  # OFF: no rejection by trend confluence
     require-volume: false      # OFF: no rejection by volume
     min-volume-ratio: 1.2
+    btc-correlation-symbols: ${TRADING_CONTEXT_BTC_CORRELATION_SYMBOLS:SOLUSDT,BTCUSDT,ETHUSDT}
 
   # Historical Performance & Auto-Adjustment
   performance:

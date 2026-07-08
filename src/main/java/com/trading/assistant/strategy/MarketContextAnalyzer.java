@@ -1,6 +1,6 @@
 package com.trading.assistant.strategy;
 
-import com.trading.assistant.binance.BinanceClient;
+import com.trading.assistant.binance.ExchangeClient;
 import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.strategy.model.MarketContext;
 import org.slf4j.Logger;
@@ -23,7 +23,7 @@ public class MarketContextAnalyzer {
     private static final Logger logger = LoggerFactory.getLogger(MarketContextAnalyzer.class);
 
     @Autowired
-    private BinanceClient binanceClient;
+    private ExchangeClient binanceClient;
 
     @Autowired
     private IndicatorCalculator indicatorCalculator;
@@ -36,6 +36,9 @@ public class MarketContextAnalyzer {
 
     @Value("${trading.context.min-volume-ratio:1.0}")
     private double minVolumeRatio;
+
+    @Value("${trading.context.btc-correlation-symbols:SOLUSDT,BTCUSDT,ETHUSDT}")
+    private String btcCorrelationSymbols;
 
     private static final String BTC_SYMBOL = "BTCUSDT";
     private static final String[] TIMEFRAMES = {"1h", "4h", "1d"};
@@ -112,8 +115,14 @@ public class MarketContextAnalyzer {
                 ctx.setDistanceToResistancePct(indicatorCalculator.distanceToLevelPct(currentPrice, resistance));
             }
 
-            // 4. BTC Correlation
-            analyzeBtcCorrelation(ctx, sym, currentPrice);
+            // 4. BTC Correlation (only for crypto pairs — skip for forex/commodities)
+            if (isBtcCorrelated(sym)) {
+                analyzeBtcCorrelation(ctx, sym, currentPrice);
+            } else {
+                ctx.setBtcCorrelation(0.0);
+                ctx.setBtcTrend1d(MarketContext.TrendDirection.SIDEWAYS);
+                logger.debug("BTC correlation skipped for non-crypto symbol: {}", sym);
+            }
 
             // 5. Confluence check
             int upCount = 0, downCount = 0;
@@ -130,6 +139,15 @@ public class MarketContextAnalyzer {
             logger.error("Error building market context: {}", e.getMessage(), e);
             return null;
         }
+    }
+
+    private boolean isBtcCorrelated(String sym) {
+        if (btcCorrelationSymbols == null || btcCorrelationSymbols.isBlank()) return false;
+        String upper = sym.toUpperCase();
+        for (String s : btcCorrelationSymbols.split(",")) {
+            if (s.trim().equalsIgnoreCase(upper)) return true;
+        }
+        return false;
     }
 
     private void analyzeBtcCorrelation(MarketContext ctx, String symbol, BigDecimal currentPrice) {

@@ -25,8 +25,8 @@ import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
-@Service
-public class BinanceClient {
+@Service("binanceClient")
+public class BinanceClient implements ExchangeClient {
 
     private static final Logger logger = LoggerFactory.getLogger(BinanceClient.class);
     private static final ObjectMapper mapper = new ObjectMapper();
@@ -827,6 +827,24 @@ public class BinanceClient {
             logger.error("Error getting book ticker: {}", e.getMessage());
             return null;
         }
+    }
+
+    @Override
+    public double getSpreadPct(String sym) {
+        try {
+            String targetSym = (sym != null && !sym.isEmpty()) ? sym : symbol;
+            String url = "/fapi/v1/ticker/bookTicker?symbol=" + targetSym;
+            String response = webClient.get().uri(url).retrieve().bodyToMono(String.class).block();
+            JsonNode root = mapper.readTree(response);
+            BigDecimal bid = new BigDecimal(root.get("bidPrice").asText());
+            BigDecimal ask = new BigDecimal(root.get("askPrice").asText());
+            if (bid.compareTo(BigDecimal.ZERO) > 0) {
+                return ask.subtract(bid).divide(bid, 8, java.math.RoundingMode.HALF_UP).doubleValue() * 100.0;
+            }
+        } catch (Exception e) {
+            logger.warn("getSpreadPct error for {}: {}", sym, e.getMessage());
+        }
+        return 999.0;
     }
 
     // ============== PER-BOT ORDER PLACEMENT ==============

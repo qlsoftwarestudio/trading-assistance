@@ -1,7 +1,6 @@
 package com.trading.assistant.strategy;
 
-import com.trading.assistant.binance.BinanceClient;
-import com.trading.assistant.binance.model.BookTicker;
+import com.trading.assistant.binance.ExchangeClient;
 import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.portfolio.repository.TradeRepository;
 import org.slf4j.Logger;
@@ -26,7 +25,7 @@ public class MarketConditionGate {
     private static final Logger logger = LoggerFactory.getLogger(MarketConditionGate.class);
 
     @Autowired
-    private BinanceClient binanceClient;
+    private ExchangeClient exchangeClient;
 
     @Autowired
     private IndicatorCalculator indicatorCalculator;
@@ -86,8 +85,7 @@ public class MarketConditionGate {
         boolean volatilityOk = volatilityPct >= minVolatilityPct;
 
         // 2. Spread check: best bid/ask < max %
-        BookTicker bookTicker = binanceClient.getBookTicker();
-        double spreadPct = bookTicker != null ? bookTicker.getSpreadPct() : 999.0;
+        double spreadPct = exchangeClient.getSpreadPct(symbol);
         boolean spreadOk = spreadPct <= maxSpreadPct;
 
         // 3. Volume check: relative volume > min ratio
@@ -146,8 +144,7 @@ public class MarketConditionGate {
 
         double atr1m = indicatorCalculator.calculateATR(klines1m, 14);
         double volatilityPct = (atr1m / currentPrice) * 100.0;
-        BookTicker bookTicker = binanceClient.getBookTicker();
-        double spreadPct = bookTicker != null ? bookTicker.getSpreadPct() : 999.0;
+        double spreadPct = exchangeClient.getSpreadPct(symbol);
         double volRatio = indicatorCalculator.calculateRelativeVolume(klines1m, 20);
 
         logger.info("📊 Market conditions (1m): Vol={}% (min {}%), Spread={}% (max {}%), VolRatio={}x (min {}x)",

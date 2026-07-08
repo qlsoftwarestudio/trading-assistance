@@ -1,6 +1,6 @@
 package com.trading.assistant.strategy.backtest;
 
-import com.trading.assistant.binance.BinanceClient;
+import com.trading.assistant.binance.ExchangeClient;
 import com.trading.assistant.binance.model.Kline;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,7 +19,7 @@ public class BacktestService {
     private static final Logger logger = LoggerFactory.getLogger(BacktestService.class);
 
     @Autowired
-    private BinanceClient binanceClient;
+    private ExchangeClient binanceClient;
 
     @Value("${trading.strategy.symbol:HYPEUSDT}")
     private String symbol;

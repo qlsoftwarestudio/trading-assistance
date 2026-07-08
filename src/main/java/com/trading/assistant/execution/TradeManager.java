@@ -1,6 +1,6 @@
 package com.trading.assistant.execution;
 
-import com.trading.assistant.binance.BinanceClient;
+import com.trading.assistant.binance.ExchangeClient;
 import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.notification.TelegramBot;
 import com.trading.assistant.portfolio.model.Trade;
@@ -38,7 +38,7 @@ public class TradeManager {
     private static final Logger logger = LoggerFactory.getLogger(TradeManager.class);
 
     @Autowired
-    private BinanceClient binanceClient;
+    private ExchangeClient binanceClient;
 
     @Autowired
     private TradeRepository tradeRepository;

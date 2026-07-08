@@ -1,6 +1,6 @@
 package com.trading.assistant.strategy;
 
-import com.trading.assistant.binance.BinanceClient;
+import com.trading.assistant.binance.ExchangeClient;
 import com.trading.assistant.binance.model.Kline;
 import com.trading.assistant.execution.TradeManager;
 import com.trading.assistant.strategy.model.Signal;
@@ -32,7 +32,7 @@ public class ScalpStrategy {
     private static final Logger logger = LoggerFactory.getLogger(ScalpStrategy.class);
 
     @Autowired
-    private BinanceClient binanceClient;
+    private ExchangeClient binanceClient;
 
     @Autowired
     private IndicatorCalculator indicatorCalculator;
