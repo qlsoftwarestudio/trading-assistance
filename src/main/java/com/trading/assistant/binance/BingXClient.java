@@ -432,9 +432,10 @@ public class BingXClient implements ExchangeClient {
                     .retrieve().bodyToMono(String.class).block();
             JsonNode root = mapper.readTree(response);
             if (root.path("code").asInt() == 0) {
-                return new BigDecimal(root.path("data").path("balance").path("availableMargin").asText("0"));
+                return new BigDecimal(root.path("data").path("balance").path("equity").asText("0"));
             }
-            return BigDecimal.ZERO;
+            logger.warn("BingX getBalanceForBot non-zero code: {}", response);
+            return getBalance(asset);
         } catch (Exception e) {
             logger.error("BingX getBalanceForBot error: {}", e.getMessage());
             return getBalance(asset);

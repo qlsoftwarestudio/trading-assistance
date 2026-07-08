@@ -296,6 +296,10 @@ public class TradeManager {
 
     private boolean isDailyLossLimitHit(BigDecimal balance) {
         try {
+            if (balance == null || balance.compareTo(new BigDecimal("1.00")) < 0) {
+                logger.warn("isDailyLossLimitHit: balance=${} too low to compute limit — skipping check.", balance);
+                return false;
+            }
             LocalDateTime startOfDay = LocalDateTime.now().toLocalDate().atStartOfDay();
             BigDecimal dailyPnl = tradeRepository.calculateDailyPnl(startOfDay);
             BigDecimal limit = balance.multiply(BigDecimal.valueOf(maxDailyLossPct / 100)).negate();
