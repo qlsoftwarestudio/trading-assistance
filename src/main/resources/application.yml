@@ -202,10 +202,6 @@ trading:
     # EMA 200 daily macro filter (per-symbol)
     # price > EMA200(1d) → only LONGs allowed | price < EMA200(1d) → only SHORTs allowed
     ema200-filter-symbols: SOLUSDT      # Comma-separated; empty = disabled for all
-    # Per-symbol Bollinger Bands period override (SYMBOL:PERIOD,...)
-    # SOL uses BB(50) — wider bands, only deep pullbacks qualify in uptrend
-    # HYPE uses BB(20) — tighter mean (default)
-    symbol-bb-period: "SOLUSDT:50,HYPEUSDT:20"
     # Stochastic + Bollinger Bands confirmation filter
     use-stoch-bb-filter: true        # ON: entries only near BB bands + stoch confirmation
     stoch-period: 14                 # Stochastic lookback period (standard: 14)
