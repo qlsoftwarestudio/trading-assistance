@@ -76,17 +76,17 @@ public class AutoAdjustService {
 
                     if (winRate < winRateThreshold && currentlyEnabled) {
                         setupEnabled.put(key, false);
-                        logger.warn("🚫 Auto-adjust: {} {} disabled. Win rate: {:.1f}% ({} wins / {} trades), Avg P&L: ${}",
-                                action, setup, winRate * 100, wins, total,
+                        logger.warn("🚫 Auto-adjust: {} {} disabled. Win rate: {}% ({} wins / {} trades), Avg P&L: ${}",
+                                action, setup, String.format("%.1f", winRate * 100), wins, total,
                                 avgPnl != null ? avgPnl.setScale(2, RoundingMode.HALF_UP) : "N/A");
                     } else if (winRate >= winRateThreshold && !currentlyEnabled) {
                         setupEnabled.put(key, true);
-                        logger.info("✅ Auto-adjust: {} {} re-enabled. Win rate: {:.1f}% ({} wins / {} trades), Avg P&L: ${}",
-                                action, setup, winRate * 100, wins, total,
+                        logger.info("✅ Auto-adjust: {} {} re-enabled. Win rate: {}% ({} wins / {} trades), Avg P&L: ${}",
+                                action, setup, String.format("%.1f", winRate * 100), wins, total,
                                 avgPnl != null ? avgPnl.setScale(2, RoundingMode.HALF_UP) : "N/A");
                     } else {
-                        logger.debug("Auto-adjust: {} {} status={} (WR: {:.1f}%, {} trades)",
-                                action, setup, currentlyEnabled ? "ON" : "OFF", winRate * 100, total);
+                        logger.debug("Auto-adjust: {} {} status={} (WR: {}%, {} trades)",
+                                action, setup, currentlyEnabled ? "ON" : "OFF", String.format("%.1f", winRate * 100), total);
                     }
                 }
             }

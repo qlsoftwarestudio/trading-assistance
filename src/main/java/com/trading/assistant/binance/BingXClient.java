@@ -61,37 +61,17 @@ public class BingXClient implements ExchangeClient {
         this.webClient = WebClient.builder()
                 .baseUrl(baseUrl)
                 .defaultHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(4 * 1024 * 1024))
                 .build();
 
         if (apiKey != null && !apiKey.isEmpty() && apiSecret != null && !apiSecret.isEmpty()) {
             this.configured = true;
             logger.info("BingX client configured ({})", baseUrl);
             fetchContractInfo();
-            enableHedgeMode();
+            // BingX supports dual positions (LONG/SHORT simultaneously) natively via positionSide in each order.
+            // No account-level hedge mode endpoint is needed.
         } else {
             logger.warn("BingX API keys not configured. BingXClient in demo mode.");
-        }
-    }
-
-    /**
-     * Sets BingX account to Hedge Mode (Dual Position Side).
-     * Required for placing simultaneous LONG and SHORT positions.
-     * Endpoint: POST /openApi/swap/v1/trade/positionSide/dual
-     */
-    private void enableHedgeMode() {
-        try {
-            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
-            params.put("dualSidePosition", "true");
-            String query = buildSignedQuery(params);
-            String response = webClient.post()
-                    .uri("/openApi/swap/v1/trade/positionSide/dual?" + query)
-                    .header("X-BX-APIKEY", apiKey)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-            logger.info("BingX Hedge Mode enabled: {}", response);
-        } catch (Exception e) {
-            logger.warn("BingX enableHedgeMode: {} (may already be set)", e.getMessage());
         }
     }
 

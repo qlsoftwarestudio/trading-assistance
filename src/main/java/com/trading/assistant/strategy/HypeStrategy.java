@@ -1137,8 +1137,8 @@ public class HypeStrategy {
             signalPerformanceService.refreshPatternStats();
             SignalPerformanceService.ThresholdAdjustments adjustments = signalPerformanceService.suggestAdjustments();
             if (adjustments != null) {
-                logger.info("📊 Suggested adjustments: RSI oversold={:.1f}, minMomentum={:.2f}",
-                        adjustments.suggestedRsiOversold, adjustments.suggestedMinMomentum);
+                logger.info("📊 Suggested adjustments: RSI oversold={}, minMomentum={}",
+                        String.format("%.1f", adjustments.suggestedRsiOversold), String.format("%.2f", adjustments.suggestedMinMomentum));
                 // Aplicar ajustes conservadores (max 5% delta)
                 double deltaRsi = Math.abs(adjustments.suggestedRsiOversold - rsiOversold);
                 double deltaMomentum = Math.abs(adjustments.suggestedMinMomentum - minMomentum);
@@ -1148,7 +1148,7 @@ public class HypeStrategy {
                 if (deltaMomentum < 0.5) {
                     minMomentum = adjustments.suggestedMinMomentum;
                 }
-                logger.info("✅ Thresholds updated: rsiOversold={:.1f}, minMomentum={:.2f}", rsiOversold, minMomentum);
+                logger.info("✅ Thresholds updated: rsiOversold={}, minMomentum={}", String.format("%.1f", rsiOversold), String.format("%.2f", minMomentum));
             } else {
                 logger.info("No adjustments suggested (insufficient data)");
             }

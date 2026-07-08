@@ -1735,13 +1735,13 @@ public class TradeManager {
             if (ratio >= positionSizeVolatilityThreshold) {
                 // High volatility: reduce size
                 factor = positionSizeHighVolFactor;
-                logger.info("📉 High volatility detected (ATR ratio={:.2f}), reducing position size by {:.0f}%",
-                        ratio, (1 - factor) * 100);
+                logger.info("📉 High volatility detected (ATR ratio={}), reducing position size by {}%",
+                        String.format("%.2f", ratio), String.format("%.0f", (1 - factor) * 100));
             } else if (ratio <= 1.0 / positionSizeVolatilityThreshold) {
                 // Low volatility: increase size (but not more than 50% above base)
                 factor = positionSizeLowVolFactor;
-                logger.info("📈 Low volatility detected (ATR ratio={:.2f}), increasing position size by {:.0f}%",
-                        ratio, (factor - 1) * 100);
+                logger.info("📈 Low volatility detected (ATR ratio={}), increasing position size by {}%",
+                        String.format("%.2f", ratio), String.format("%.0f", (factor - 1) * 100));
             } else {
                 // Normal volatility: use base size
                 factor = 1.0;
