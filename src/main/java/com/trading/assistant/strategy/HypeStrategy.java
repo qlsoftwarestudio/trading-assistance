@@ -250,6 +250,12 @@ public class HypeStrategy {
     @Value("${trading.strategy.rejection-candle-bypass-rsi:74.0}")
     private double rejectionCandleBypassRsi;
 
+    @Value("${trading.strategy.stoch-overbought-macro-down:70.0}")
+    private double stochOverboughtMacroDown;
+
+    @Value("${trading.strategy.ema200-long-bypass-rsi:20.0}")
+    private double ema200LongBypassRsi;
+
     // Liquidity sweep filter: detect price sweeping a recent swing high/low with long wick + close back
     @Value("${trading.strategy.use-liquidity-sweep-filter:false}")
     private boolean useLiquiditySweepFilter;
@@ -569,12 +575,18 @@ public class HypeStrategy {
             }
 
             // EMA 200 daily macro filter: only LONG when price is above EMA200(1d) — macro trend must be UP
+            // Bypass: allow LONGs when RSI is extremely oversold (< ema200LongBypassRsi) + reversing up → counter-trend bounce
             if (ema200Daily > 0 && currentPrice.doubleValue() < ema200Daily) {
-                logger.info("❌ LONG rejected: price {} < EMA200(1d) {} — macro trend DOWN, only SHORTs allowed for {}",
-                        String.format("%.4f", currentPrice.doubleValue()), String.format("%.4f", ema200Daily), sym);
-                saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                        "EMA200_MACRO_FILTER", currentPrice, rsi, momentum, 0.0);
-                return;
+                boolean extremeOversoldBypass = rsi < ema200LongBypassRsi && rsiReversingUp;
+                if (!extremeOversoldBypass) {
+                    logger.info("❌ LONG rejected: price {} < EMA200(1d) {} — macro trend DOWN, only SHORTs allowed for {}",
+                            String.format("%.4f", currentPrice.doubleValue()), String.format("%.4f", ema200Daily), sym);
+                    saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
+                            "EMA200_MACRO_FILTER", currentPrice, rsi, momentum, 0.0);
+                    return;
+                }
+                logger.info("⚡ EMA200 macro bypass: RSI={} < {} (extreme oversold) + reversing UP — counter-trend bounce allowed",
+                        String.format("%.2f", rsi), String.format("%.0f", ema200LongBypassRsi));
             }
 
             // Volume filter: reject mean-reversion LONG when volume is too low (no buying pressure)
@@ -1001,22 +1013,26 @@ public class HypeStrategy {
             }
 
             // Stoch+BB confirmation filter (optional, config-gated)
+            // In macro=DOWN environment, relax stoch threshold to allow SHORTs when Stoch doesn't reach 85
             if (useStochBbFilter) {
-                boolean stochOverbought5m = stochK5m > stochOverboughtThreshold;
+                boolean macroDown = ema200Daily > 0 && currentPrice.doubleValue() < ema200Daily;
+                double effectiveStochThreshold = macroDown ? stochOverboughtMacroDown : stochOverboughtThreshold;
+                boolean stochOverbought5m = stochK5m > effectiveStochThreshold;
                 double price = currentPrice.doubleValue();
                 double upperBandGap = indicatorCalculator.getBBDistancePct(price, bbUpper); // <0 means price below upper band
                 boolean nearUpperBand = upperBandGap >= -bbProximityPct && upperBandGap <= 1.0; // within bbProximityPct% below or above upper band
                 boolean stoch15mOk = stochK15m > stoch15mShortMin; // 15m leaning overbought (not in downtrend)
                 if (!(stochOverbought5m && nearUpperBand && stoch15mOk)) {
-                    logger.info("❌ SHORT rejected by Stoch+BB: stochK5m={} (need >{}) upperBandGap={}% (need >-{}%) stochK15m={} (need >{})",
-                            String.format("%.1f", stochK5m), stochOverboughtThreshold,
+                    logger.info("❌ SHORT rejected by Stoch+BB: stochK5m={} (need >{}{}) upperBandGap={}% (need >-{}%) stochK15m={} (need >{})",
+                            String.format("%.1f", stochK5m), effectiveStochThreshold, macroDown ? " macro-down" : "",
                             String.format("%.2f", upperBandGap), bbProximityPct,
                             String.format("%.1f", stochK15m), stoch15mShortMin);
                     saveRejection(sym, "SHORT", entryType, "STOCH_BB_FILTER", currentPrice, rsi, momentum, 0.0);
                     return;
                 }
-                logger.info("✅ Stoch+BB SHORT confirmed: stochK5m={} upperBandGap={}% stochK15m={} (>{})",
-                        String.format("%.1f", stochK5m), String.format("%.2f", upperBandGap),
+                logger.info("✅ Stoch+BB SHORT confirmed: stochK5m={} (thr={}{}) upperBandGap={}% stochK15m={} (>{})",
+                        String.format("%.1f", stochK5m), effectiveStochThreshold, macroDown ? " macro-down" : "",
+                        String.format("%.2f", upperBandGap),
                         String.format("%.1f", stochK15m), stoch15mShortMin);
             }
 

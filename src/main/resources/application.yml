@@ -230,6 +230,8 @@ trading:
     use-rejection-candle-filter: true   # ON: requires long wick + close back for mean-reversion entries
     rejection-candle-min-wick-ratio: 1.0 # Wick must be >= 1× body size (relaxed from 2.0 — easier to satisfy)
     rejection-candle-bypass-rsi: 74.0    # Bypass wick check entirely when RSI > this (extreme overbought/oversold)
+    stoch-overbought-macro-down: 70.0    # Relaxed stoch threshold for SHORTs when macro=DOWN (price < EMA200 1d); normal=85
+    ema200-long-bypass-rsi: 20.0         # Allow LONGs even in macro=DOWN when RSI < this (extreme oversold counter-trend bounce)
     # Liquidity sweep filter: detect price sweeping recent swing high/low with long wick + close back
     use-liquidity-sweep-filter: true    # ON: requires a liquidity sweep of recent swing points
     liquidity-sweep-lookback: 5          # Look back N candles for swing high/low to sweep
