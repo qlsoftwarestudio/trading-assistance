@@ -588,13 +588,20 @@ public class BingXClient implements ExchangeClient {
     private String extractOrderId(String jsonResponse) {
         try {
             JsonNode root = mapper.readTree(jsonResponse);
+            int code = root.path("code").asInt(-1);
+            if (code != 0) {
+                logger.error("BingX order rejected — code={}, msg={}, raw={}",
+                        code, root.path("msg").asText(""), jsonResponse);
+                return null;
+            }
             JsonNode order = root.path("data").path("order");
             if (order.has("orderId")) return order.get("orderId").asText();
             if (root.path("data").has("orderId")) return root.path("data").get("orderId").asText();
+            logger.error("BingX: orderId field not found in successful response: {}", jsonResponse);
         } catch (Exception e) {
-            logger.error("BingX: failed to extract orderId from: {}", jsonResponse);
+            logger.error("BingX: failed to parse order response: {} | raw: {}", e.getMessage(), jsonResponse);
         }
-        return "BINGX_ORDER_" + System.currentTimeMillis();
+        return null;
     }
 
     // ── Demo klines ──────────────────────────────────────────────────────────────
