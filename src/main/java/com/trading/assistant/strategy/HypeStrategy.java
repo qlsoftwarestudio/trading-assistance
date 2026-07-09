@@ -244,8 +244,11 @@ public class HypeStrategy {
     @Value("${trading.strategy.use-rejection-candle-filter:false}")
     private boolean useRejectionCandleFilter;
 
-    @Value("${trading.strategy.rejection-candle-min-wick-ratio:2.0}")
+    @Value("${trading.strategy.rejection-candle-min-wick-ratio:1.0}")
     private double rejectionCandleMinWickRatio;
+
+    @Value("${trading.strategy.rejection-candle-bypass-rsi:74.0}")
+    private double rejectionCandleBypassRsi;
 
     // Liquidity sweep filter: detect price sweeping a recent swing high/low with long wick + close back
     @Value("${trading.strategy.use-liquidity-sweep-filter:false}")
@@ -1020,14 +1023,14 @@ public class HypeStrategy {
             // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
             // Bypass when RSI is extremely overbought (> 80) AND volume is not anomalously high (< 3x)
             // High volume = pump in progress, NOT exhaustion — do NOT bypass filters (e.g. SOL 10.34x pump)
-            boolean extremeOverboughtBypass = rsi > 80.0 && relativeVolume < 3.0;
+            boolean extremeOverboughtBypass = rsi > rejectionCandleBypassRsi && relativeVolume < 3.0;
             if (useRejectionCandleFilter && meanReversionCondition && !extremeOverboughtBypass && !isRejectionCandleForShort(currentKline)) {
                 logger.info("❌ SHORT {} rejected: no rejection candle at upper BB (wick too small)", entryType);
                 saveRejection(sym, "SHORT", entryType, "NO_REJECTION_CANDLE", currentPrice, rsi, momentum, 0.0);
                 return;
             }
             if (extremeOverboughtBypass && useRejectionCandleFilter) {
-                logger.info("⚡ Rejection candle bypassed: RSI={} > 80 (extreme overbought)", String.format("%.2f", rsi));
+                logger.info("⚡ Rejection candle bypassed: RSI={} > {} (extreme overbought)", String.format("%.2f", rsi), String.format("%.0f", rejectionCandleBypassRsi));
             }
 
             // Liquidity sweep filter: detect price sweeping a recent swing high with long wick + close back
