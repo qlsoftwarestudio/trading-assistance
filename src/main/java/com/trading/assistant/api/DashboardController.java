@@ -18,6 +18,7 @@ import com.trading.assistant.user.service.JwtUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -32,6 +33,9 @@ import java.util.Map;
 @RequestMapping("/api")
 @Tag(name = "Trading Assistant API", description = "Dashboard and trading operations")
 public class DashboardController {
+
+    @Value("${trading.strategy.symbols:SOLUSDT}")
+    private String configuredSymbols;
 
     @Autowired
     private PortfolioService portfolioService;
@@ -344,7 +348,7 @@ public class DashboardController {
         Long userId = getUserIdFromToken(authHeader);
         if (userId == null) return ResponseEntity.status(401).body(Map.of("error", "Unauthorized"));
 
-        String[] symbols = {"HYPEUSDT", "SOLUSDT"};
+        String[] symbols = configuredSymbols.split(",");
         List<Map<String, Object>> results = new java.util.ArrayList<>();
 
         for (String sym : symbols) {

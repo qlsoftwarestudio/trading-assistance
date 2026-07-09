@@ -200,6 +200,27 @@ public class AdminService {
     @Value("${trading.strategy.swing-trailing-activation-pct:0.8}")
     private double swingTrailingActivationPct;
 
+    @Value("${trading.strategy.partial-tp-enabled:true}")
+    private boolean partialTpEnabled;
+
+    @Value("${trading.strategy.re-entry-enabled:true}")
+    private boolean reEntryEnabled;
+
+    @Value("${trading.strategy.re-entry-window-minutes:15}")
+    private int reEntryWindowMinutes;
+
+    @Value("${trading.strategy.use-range-breakout:true}")
+    private boolean useRangeBreakout;
+
+    @Value("${trading.strategy.breakout-lookback:20}")
+    private int breakoutLookback;
+
+    @Value("${trading.strategy.breakout-max-range-pct:2.5}")
+    private double breakoutMaxRangePct;
+
+    @Value("${trading.strategy.breakout-volume-multiplier:2.5}")
+    private double breakoutVolumeMultiplier;
+
     /**
      * Returns all current strategy and system configuration values.
      * Used by the frontend admin panel config display.
@@ -273,6 +294,14 @@ public class AdminService {
         config.put("symbolBbPeriod", symbolBbPeriod);
         config.put("swingTrailingStopPct", swingTrailingStopPct);
         config.put("swingTrailingActivationPct", swingTrailingActivationPct);
+
+        config.put("partialTpEnabled", partialTpEnabled);
+        config.put("reEntryEnabled", reEntryEnabled);
+        config.put("reEntryWindowMinutes", reEntryWindowMinutes);
+        config.put("useRangeBreakout", useRangeBreakout);
+        config.put("breakoutLookback", breakoutLookback);
+        config.put("breakoutMaxRangePct", breakoutMaxRangePct);
+        config.put("breakoutVolumeMultiplier", breakoutVolumeMultiplier);
 
         return config;
     }
