@@ -9,7 +9,6 @@ import com.trading.assistant.portfolio.repository.TradeJournalRepository;
 import com.trading.assistant.portfolio.repository.TradeRepository;
 import com.trading.assistant.strategy.AutoAdjustService;
 import com.trading.assistant.strategy.HypeStrategy;
-import com.trading.assistant.strategy.ScalpStrategy;
 import com.trading.assistant.strategy.backtest.BacktestResult;
 import com.trading.assistant.strategy.backtest.BacktestService;
 import com.trading.assistant.strategy.model.Signal;
@@ -48,9 +47,6 @@ public class DashboardController {
 
     @Autowired
     private HypeStrategy hypeStrategy;
-
-    @Autowired(required = false)
-    private ScalpStrategy scalpStrategy;
 
     @Autowired
     private BacktestService backtestService;
@@ -390,9 +386,6 @@ public class DashboardController {
                 "running", hypeStrategy.isRunning(),
                 "description", hypeStrategy.getStrategyStatus()
         ));
-        status.put("hunter", Map.of(
-                "running", scalpStrategy != null ? scalpStrategy.isRunning() : false
-        ));
         status.put("timestamp", java.time.LocalDateTime.now().toString());
         return ResponseEntity.ok(status);
     }
@@ -407,27 +400,6 @@ public class DashboardController {
         Map<String, Object> response = new HashMap<>();
         response.put("swingRunning", nowRunning);
         response.put("message", nowRunning ? "Swing strategy STARTED" : "Swing strategy STOPPED");
-        response.put("timestamp", java.time.LocalDateTime.now().toString());
-        return ResponseEntity.ok(response);
-    }
-
-    /**
-     * Toggle hunter/scalp strategy on/off
-     */
-    @PostMapping("/strategy/hunter/toggle")
-    @Operation(summary = "Toggle hunter strategy", description = "Toggle hunter/scalp strategy ON/OFF")
-    public ResponseEntity<Map<String, Object>> toggleHunterStrategy() {
-        if (scalpStrategy == null) {
-            Map<String, Object> response = new HashMap<>();
-            response.put("hunterRunning", false);
-            response.put("message", "Hunter strategy is disabled via configuration");
-            response.put("timestamp", java.time.LocalDateTime.now().toString());
-            return ResponseEntity.ok(response);
-        }
-        boolean nowRunning = scalpStrategy.toggle();
-        Map<String, Object> response = new HashMap<>();
-        response.put("hunterRunning", nowRunning);
-        response.put("message", nowRunning ? "Hunter strategy STARTED" : "Hunter strategy STOPPED");
         response.put("timestamp", java.time.LocalDateTime.now().toString());
         return ResponseEntity.ok(response);
     }

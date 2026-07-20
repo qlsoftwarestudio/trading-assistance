@@ -52,6 +52,9 @@ public class BingXClient implements ExchangeClient {
     @Value("${trading.strategy.leverage:7}")
     private int defaultLeverage;
 
+    @Value("${trading.strategy.symbols:}")
+    private List<String> configuredSymbols;
+
     private WebClient webClient;
     private boolean configured = false;
     private final Map<String, Integer> symbolQuantityPrecision = new ConcurrentHashMap<>();
@@ -88,6 +91,7 @@ public class BingXClient implements ExchangeClient {
     private String toBingXSymbol(String symbol) {
         if (symbol == null) return symbol;
         if (symbol.endsWith("USDT")) return symbol.substring(0, symbol.length() - 4) + "-USDT";
+        if (symbol.endsWith("JPY"))  return symbol.substring(0, symbol.length() - 3) + "-JPY";  // forex quote in JPY (e.g. USDJPY → USD-JPY)
         if (symbol.endsWith("USD"))  return symbol.substring(0, symbol.length() - 3) + "-USD";
         if (symbol.endsWith("BTC"))  return symbol.substring(0, symbol.length() - 3) + "-BTC";
         return symbol;
@@ -110,9 +114,32 @@ public class BingXClient implements ExchangeClient {
                     if (sym != null) symbolQuantityPrecision.put(sym, qtyScale);
                 }
                 logger.info("BingX: loaded {} contracts", symbolQuantityPrecision.size());
+                verifyConfiguredSymbols();
             }
         } catch (Exception e) {
             logger.warn("BingX: could not fetch contract info: {}. Using default precision=2", e.getMessage());
+        }
+    }
+
+    /**
+     * Logs whether each configured trading symbol is actually listed on BingX (as a swap contract).
+     * A MISSING symbol means BingX does not offer that perpetual — orders/klines for it will fail.
+     */
+    private void verifyConfiguredSymbols() {
+        if (configuredSymbols == null || configuredSymbols.isEmpty()) {
+            logger.warn("BingX: no trading.strategy.symbols configured to verify");
+            return;
+        }
+        for (String internal : configuredSymbols) {
+            if (internal == null || internal.isBlank()) continue;
+            String bxSym = toBingXSymbol(internal.trim());
+            if (symbolQuantityPrecision.containsKey(bxSym)) {
+                logger.info("✅ BingX symbol available: {} → {} (qtyPrecision={})",
+                        internal.trim(), bxSym, symbolQuantityPrecision.get(bxSym));
+            } else {
+                logger.error("❌ BingX symbol NOT LISTED: {} → {} — this pair is not offered as a swap; trading it will fail",
+                        internal.trim(), bxSym);
+            }
         }
     }
 

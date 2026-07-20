@@ -47,6 +47,9 @@ public class HypeStrategy {
     private MarketContextAnalyzer marketContextAnalyzer;
 
     @Autowired
+    private MarketStructureAnalyzer marketStructureAnalyzer;
+
+    @Autowired
     private SignalPerformanceService signalPerformanceService;
 
     @Autowired
@@ -328,6 +331,42 @@ public class HypeStrategy {
     @Value("${trading.strategy.breakout-volume-multiplier:2.5}")
     private double breakoutVolumeMultiplier;
 
+    // ── HTF (H1) macro structure filter ──────────────────────────────────────────
+    // Blocks M5 SHORTs when H1 structure is BULLISH, and M5 LONGs when H1 is BEARISH.
+    @Value("${trading.strategy.use-htf-structure-filter:false}")
+    private boolean useHtfStructureFilter;
+
+    @Value("${trading.strategy.htf-timeframe:1h}")
+    private String htfTimeframe;
+
+    @Value("${trading.strategy.htf-klines:120}")
+    private int htfKlines;
+
+    @Value("${trading.strategy.htf-pivot-strength:3}")
+    private int htfPivotStrength;
+
+    // ── Order Block filter (institutional zones) ─────────────────────────────────
+    // The M5 BB/RSI trigger only fires when price is inside a valid demand/supply OB.
+    @Value("${trading.strategy.use-order-block-filter:false}")
+    private boolean useOrderBlockFilter;
+
+    @Value("${trading.strategy.ob-pivot-strength:2}")
+    private int obPivotStrength;
+
+    @Value("${trading.strategy.ob-displacement-atr:1.5}")
+    private double obDisplacementAtr;
+
+    @Value("${trading.strategy.ob-max-blocks:5}")
+    private int obMaxBlocks;
+
+    // ── Pure SMC entry mode ──────────────────────────────────────────────────────
+    // When true, entries are driven ONLY by SMC structure: a valid Order Block aligned
+    // with the H1 macro structure, inside a kill zone, with a structural SL and >=1:2 R:R
+    // (enforced in TradeManager). ALL legacy filters (BB, Stochastic, RSI, VWAP, EMA,
+    // rejection candle, liquidity sweep, breakout) are bypassed.
+    @Value("${trading.strategy.use-smc-entry:true}")
+    private boolean useSmcEntry;
+
     @Scheduled(fixedRate = 60000)
     public void executeStrategy() {
         if (!strategyEnabled) {
@@ -394,123 +433,77 @@ public class HypeStrategy {
             }
 
             BigDecimal currentPrice = indicatorCalculator.getCurrentPriceFromKlines(klines);
-            double rsi = indicatorCalculator.calculateRSIFromKlines(klines, rsiLength);
-            double previousRsi = 50.0;
-            if (klines.size() > 1) {
-                List<Kline> prevKlines = klines.subList(0, klines.size() - 1);
-                previousRsi = indicatorCalculator.calculateRSIFromKlines(prevKlines, rsiLength);
-            }
-            double sessionLow = indicatorCalculator.calculateSessionLowFromKlines(klines, lookbackBars);
-            double sessionHigh = indicatorCalculator.calculateSessionHighFromKlines(klines, lookbackBars);
-            double momentum = indicatorCalculator.calculateMomentumFromKlines(klines);
-            boolean inBuyZone = indicatorCalculator.isInBuyZone(currentPrice.doubleValue(), sessionLow, sessionHigh, killzoneThreshold);
-            boolean inSellZone = indicatorCalculator.isInSellZone(currentPrice.doubleValue(), sessionLow, sessionHigh, killzoneThreshold);
+            logger.info("💱 {} price={}", sym, String.format("%.5f", currentPrice.doubleValue()));
 
-            boolean breakoutAbove = indicatorCalculator.isBreakoutAbove(currentPrice.doubleValue(), sessionHigh);
-            boolean breakoutBelow = indicatorCalculator.isBreakoutBelow(currentPrice.doubleValue(), sessionLow);
-            double relativeVolume = indicatorCalculator.calculateRelativeVolume(klines, lookbackBars);
-            int vwapFrom = Math.max(0, klines.size() - vwapPeriod);
-            BigDecimal vwap = indicatorCalculator.calculateVWAP(klines.subList(vwapFrom, klines.size()));
-            double ema9 = indicatorCalculator.calculateEMAFromKlines(klines, emaPeriod);
-
-            logger.info("Indicators - RSI: {} (prev: {}), Low: {}, High: {}, Momentum: {}%, BuyZone: {}, SellZone: {}, Breakout↑: {}, Breakout↓: {}, Vol: {}x, VWAP: {}, EMA{}: {}",
-                    String.format("%.2f", rsi),
-                    String.format("%.2f", previousRsi),
-                    String.format("%.4f", sessionLow),
-                    String.format("%.4f", sessionHigh),
-                    String.format("%.2f", momentum),
-                    inBuyZone,
-                    inSellZone,
-                    breakoutAbove,
-                    breakoutBelow,
-                    String.format("%.2f", relativeVolume),
-                    String.format("%.4f", vwap),
-                    emaPeriod,
-                    String.format("%.4f", ema9));
-
+            // Price projection (ATR-based) — used only for trailing-stop / time-exit management
             PriceProjection projection = indicatorCalculator.calculatePriceProjection(
                     klines, atrPeriodForProjection, projectionCandlesAhead, takeProfitPctForProjection);
             if (projection != null) {
                 logger.info("📊 {}", projection.toLogString());
             }
 
-            LinearRegressionChannel channel = indicatorCalculator.calculateLinearRegressionChannel(
-                    klines, regressionLookback, projectionCandlesAhead);
-            if (channel != null) {
-                logger.info("{}", channel.toLogString());
-            }
-
             Kline currentKline = klines.get(klines.size() - 1);
 
-            // Balance filter: detect consolidation/chop (Fabio: 70% of time market is in balance)
-            boolean marketInBalance = false;
-            if (useBalanceFilter) {
-                marketInBalance = indicatorCalculator.isMarketInBalance(klines, balanceLookbackShort, balanceLookbackLong, balanceAtrCompressionRatio);
-                logger.info("📊 Market Balance (ATR{}/ATR{} < {}): {}", balanceLookbackShort, balanceLookbackLong, balanceAtrCompressionRatio, marketInBalance);
-            }
+            // ── SMC filters: HTF (H1) macro structure + Order Block ─────────────────
+            // Direction is set by the H1 macro structure; the trigger is price entering a
+            // valid Order Block (demand for LONG, supply for SHORT).
+            boolean allowLong = true;
+            boolean allowShort = true;
+            boolean inBullOB = true;  // defaults to true when OB filter is disabled
+            boolean inBearOB = true;
 
-            // Absorption filter: high volume + small range = institutional footprint
-            boolean absorptionDetected = false;
-            if (useAbsorptionFilter) {
-                absorptionDetected = indicatorCalculator.detectAbsorption(currentKline, klines, absorptionVolumeMultiplier, absorptionRangeMultiplier);
-                logger.info("📊 Absorption (vol>{}×avg, range<{}×ATR): {}", absorptionVolumeMultiplier, absorptionRangeMultiplier, absorptionDetected);
-            }
-
-            // Estimate buy/sell pressure from current candle
-            double deltaVolume = indicatorCalculator.estimateVolumeDelta(currentKline);
-            double deltaVolumeRatio = 0;
-            if (currentKline != null && currentKline.getVolume() != null && currentKline.getVolume().compareTo(BigDecimal.ZERO) > 0) {
-                deltaVolumeRatio = deltaVolume / currentKline.getVolume().doubleValue();
-            }
-            if (useDeltaVolumeFilter) {
-                String pressure = deltaVolumeRatio > deltaVolumeThreshold ? "BUY_DOMINANT"
-                        : (deltaVolumeRatio < -deltaVolumeThreshold ? "SELL_DOMINANT" : "NEUTRAL");
-                logger.info("📊 Delta volume: {} (ratio: {}) - Pressure: {}",
-                        String.format("%.2f", deltaVolume),
-                        String.format("%.2f", deltaVolumeRatio),
-                        pressure);
-            }
-
-            // Stochastic Oscillator + Bollinger Bands (5m current TF + 15m filter)
-            double[] stoch5m = indicatorCalculator.calculateStochastic(klines, stochPeriod, stochSmoothK, stochSmoothD);
-            int symbolBbPeriod = getSymbolBbPeriod(sym);
-            double[] bb5m    = indicatorCalculator.calculateBollingerBands(klines, symbolBbPeriod, bbStdDev);
-            double stochK5m = stoch5m[0], stochD5m = stoch5m[1];
-            double bbUpper = bb5m[0], bbMid = bb5m[1], bbLower = bb5m[2];
-
-            int klines15mCount = stochPeriod + stochSmoothK + stochSmoothD + 5;
-            List<Kline> klines15m = binanceClient.getKlines(sym, "15m", klines15mCount);
-            double[] stoch15m = indicatorCalculator.calculateStochastic(klines15m, stochPeriod, stochSmoothK, stochSmoothD);
-            double stochK15m = stoch15m[0];
-
-            if (useStochBbFilter) {
-                logger.info("📈 Stoch+BB | %K5m={} %D5m={} %K15m={} | BB({}) upper={} mid={} lower={}",
-                        String.format("%.1f", stochK5m), String.format("%.1f", stochD5m),
-                        String.format("%.1f", stochK15m), symbolBbPeriod,
-                        String.format("%.4f", bbUpper), String.format("%.4f", bbMid), String.format("%.4f", bbLower));
-            }
-
-            // EMA 200 daily: macro trend gate (per-symbol, fetched once per cycle)
-            double ema200Daily = 0;
-            if (isEma200FilterActive(sym)) {
-                ema200Daily = fetchEma200Daily(sym);
-                if (ema200Daily > 0) {
-                    String macroTrend = currentPrice.doubleValue() > ema200Daily ? "UP ✅" : "DOWN ⚠️";
-                    logger.info("📊 EMA200(1d)={} | price={} | macro={}",
-                            String.format("%.4f", ema200Daily),
-                            String.format("%.4f", currentPrice.doubleValue()),
-                            macroTrend);
+            if (useHtfStructureFilter) {
+                List<Kline> htf = binanceClient.getKlines(sym, htfTimeframe, htfKlines);
+                MarketStructureAnalyzer.Structure htfStructure =
+                        marketStructureAnalyzer.analyzeMacroStructure(htf, htfPivotStrength);
+                logger.info("🏗️ HTF({}) macro structure: {}", htfTimeframe, htfStructure);
+                if (htfStructure == MarketStructureAnalyzer.Structure.BULLISH) {
+                    allowShort = false; // do not short into a bullish macro structure
+                } else if (htfStructure == MarketStructureAnalyzer.Structure.BEARISH) {
+                    allowLong = false;  // do not buy into a bearish macro structure
+                } else {
+                    // Pure SMC requires a directional H1 bias — skip ranging/neutral structure.
+                    allowLong = false;
+                    allowShort = false;
                 }
             }
 
-            evaluateLongEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutAbove, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected, currentKline, klines, ema200Daily);
-            evaluateShortEntry(currentPrice, rsi, previousRsi, sessionLow, sessionHigh, momentum, inBuyZone, inSellZone, breakoutBelow, relativeVolume, marketContext, vwap, ema9, projection, channel, deltaVolumeRatio, stochK5m, stochD5m, stochK15m, bbUpper, bbMid, bbLower, sym, userId, marketInBalance, absorptionDetected, currentKline, klines, ema200Daily);
+            if (useOrderBlockFilter) {
+                double obAtr = indicatorCalculator.calculateATR(klines, atrPeriodForProjection);
+                List<MarketStructureAnalyzer.OrderBlock> obs =
+                        marketStructureAnalyzer.findOrderBlocks(klines, obPivotStrength, obDisplacementAtr, obAtr, obMaxBlocks);
+                inBullOB = marketStructureAnalyzer.isPriceInBullishOB(currentPrice.doubleValue(), obs);
+                inBearOB = marketStructureAnalyzer.isPriceInBearishOB(currentPrice.doubleValue(), obs);
+                logger.info("🧱 Order Blocks: {} active | price in demand-OB={} supply-OB={}",
+                        obs.size(), inBullOB, inBearOB);
+            }
 
-            // Breakout strategy — evaluated only when no mean-reversion position is open
-            if (useRangeBreakout
-                    && !tradeManager.hasOpenPosition(sym, userId, "LONG")
-                    && !tradeManager.hasOpenPosition(sym, userId, "SHORT")) {
-                evaluateBreakoutEntry(currentPrice, klines, sym, userId, marketContext);
+            // ── Pure SMC entry ──────────────────────────────────────────────────────
+            // Entry = valid Order Block aligned with H1 structure, inside kill zone.
+            // Structural SL + >=1:2 R:R is enforced in TradeManager (aborts if unreachable).
+            boolean longTrigger = allowLong && inBullOB;
+            boolean shortTrigger = allowShort && inBearOB;
+
+            if (longTrigger) {
+                if (tradeManager.hasOpenPosition(sym, userId, "LONG")) {
+                    logger.info("SMC LONG skip: a LONG is already open for {}", sym);
+                } else {
+                    fireSmcEntry(sym, userId, currentPrice, "LONG", marketContext);
+                }
+            } else {
+                saveRejection(sym, "LONG", "SMC", allowLong ? "NO_DEMAND_OB" : "HTF_STRUCTURE",
+                        currentPrice, 0.0, 0.0, 0.0);
+            }
+
+            if (shortTrigger) {
+                if (tradeManager.hasOpenPosition(sym, userId, "SHORT")) {
+                    logger.info("SMC SHORT skip: a SHORT is already open for {}", sym);
+                } else {
+                    fireSmcEntry(sym, userId, currentPrice, "SHORT", marketContext);
+                }
+            } else {
+                saveRejection(sym, "SHORT", "SMC", allowShort ? "NO_SUPPLY_OB" : "HTF_STRUCTURE",
+                        currentPrice, 0.0, 0.0, 0.0);
             }
 
             // Update trailing stops and time exits for open trades (data already fetched above)
@@ -537,643 +530,27 @@ public class HypeStrategy {
         }
     }
 
-    private void evaluateLongEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutAbove, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected, Kline currentKline, List<Kline> klines, double ema200Daily) {
-        boolean rsiReversingUp = rsi > previousRsi;
-        boolean meanReversionCondition = rsi < rsiOversold && inBuyZone && (!requireRsiReversal || rsiReversingUp);
-        boolean extremeOversold = rsi < emaExtremeRsiThreshold;
-        boolean volumeSpikeLong = rsi < oversoldSpikeRsiThreshold
-                && relativeVolume >= oversoldSpikeVolumeThreshold
-                && rsiReversingUp;
-        boolean breakoutCondition = useBreakout && breakoutAbove && relativeVolume >= 1.0;
-
-        // Trend-following dip: buy the pullback within an uptrending regression channel
-        boolean trendDipCondition = useTrendDipLong
-                && channel != null
-                && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP
-                && channel.getSlopePct() >= trendDipChannelSlope
-                && channel.getPricePosition() < 0.40
-                && rsi < trendDipRsiThreshold;
-
-        // Balance filter: invalidate breakout when market is in consolidation/chop
-        if (useBalanceFilter && marketInBalance && breakoutCondition) {
-            logger.info("❌ LONG Breakout rejected: market in balance (consolidation/chop) — breakouts fail 70% of time here");
-            saveRejection(sym, "LONG", "Breakout", "BALANCE_FILTER", currentPrice, rsi, momentum, 0.0);
-            breakoutCondition = false;
-        }
-
-        // Absorption filter: for mean-reversion, require institutional footprint at key level
-        if (useAbsorptionFilter && meanReversionCondition && !absorptionDetected && !volumeSpikeLong && !extremeOversold) {
-            logger.info("❌ LONG Mean-Reversion rejected: no absorption detected at this level (vol not spiking with small range)");
-            saveRejection(sym, "LONG", "Mean-Reversion", "ABSORPTION_FILTER", currentPrice, rsi, momentum, 0.0);
-            meanReversionCondition = false;
-        }
-
-        if (meanReversionCondition || breakoutCondition || trendDipCondition) {
-            if (tradeManager.hasOpenPosition(sym, userId, "LONG")) {
-                logger.info("LONG position already open for userId={} symbol={}. Skipping.", userId, sym);
-                return;
-            }
-
-            // EMA 200 daily macro filter: only LONG when price is above EMA200(1d) — macro trend must be UP
-            // Bypass: allow LONGs when RSI is extremely oversold (< ema200LongBypassRsi) + reversing up → counter-trend bounce
-            if (ema200Daily > 0 && currentPrice.doubleValue() < ema200Daily) {
-                boolean extremeOversoldBypass = rsi < ema200LongBypassRsi && rsiReversingUp;
-                if (!extremeOversoldBypass) {
-                    logger.info("❌ LONG rejected: price {} < EMA200(1d) {} — macro trend DOWN, only SHORTs allowed for {}",
-                            String.format("%.4f", currentPrice.doubleValue()), String.format("%.4f", ema200Daily), sym);
-                    saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                            "EMA200_MACRO_FILTER", currentPrice, rsi, momentum, 0.0);
-                    return;
-                }
-                logger.info("⚡ EMA200 macro bypass: RSI={} < {} (extreme oversold) + reversing UP — counter-trend bounce allowed",
-                        String.format("%.2f", rsi), String.format("%.0f", ema200LongBypassRsi));
-            }
-
-            // Volume filter: reject mean-reversion LONG when volume is too low (no buying pressure)
-            if (meanReversionCondition && relativeVolume < 0.5 && !volumeSpikeLong) {
-                logger.info("❌ LONG rejected: volume too low for mean-reversion ({}x, need >= 0.5x). RSI={}, no buying pressure.",
-                        String.format("%.2f", relativeVolume), String.format("%.2f", rsi));
-                saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                        "VOLUME_LOW", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            // VWAP filter: LONG only within VWAP ± band%
-            // Hierarchy: allow override when Stoch+BB confirms extreme oversold (price near BB lower + stoch < 20)
-            if (useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
-                double price = currentPrice.doubleValue();
-                double vwapVal = vwap.doubleValue();
-                double lower = vwapVal * (1 - vwapBandPct / 100.0);
-                double upper = vwapVal * (1 + vwapBandPct / 100.0);
-                if (price < lower || price > upper) {
-                    boolean stochExtremeOversold = stochK5m < stochOversoldThreshold;
-                    double lowerBandGap = indicatorCalculator.getBBDistancePct(price, bbLower);
-                    boolean nearLowerBand = lowerBandGap <= bbProximityPct && lowerBandGap >= -1.0;
-                    if (useStochBbFilter && stochExtremeOversold && nearLowerBand) {
-                        logger.info("⚡ VWAP filter bypassed: Stoch+BB extreme oversold (stochK5m={} < {}, lowerBandGap={}%)",
-                                String.format("%.1f", stochK5m), stochOversoldThreshold, String.format("%.2f", lowerBandGap));
-                    } else {
-                        logger.info("❌ LONG rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", upper));
-                        saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                                "VWAP_FILTER", currentPrice, rsi, momentum, Math.abs(price - vwapVal) / vwapVal * 100.0);
-                        return;
-                    }
-                }
-            }
-
-            // EMA filter: LONG only if price > EMA
-            // Exception: skip EMA filter when RSI is extremely oversold (< emaExtremeRsiThreshold)
-            if (useEmaFilter && ema9 > 0 && !extremeOversold && currentPrice.doubleValue() <= ema9) {
-                logger.info("❌ LONG rejected: price {} below EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
-                saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                        "EMA_FILTER", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-            if (extremeOversold && currentPrice.doubleValue() <= ema9) {
-                logger.info("⚡ EMA filter bypassed: RSI={} < {} (extreme oversold)", String.format("%.2f", rsi), emaExtremeRsiThreshold);
-            }
-
-            // Context filters (only rejects when requireConfluence=true; contextEnabled alone just collects data for UI)
-            if (contextEnabled && requireConfluence && ctx != null) {
-                if (!ctx.supportsLong() && !volumeSpikeLong && !extremeOversold) {
-                    logger.info("❌ LONG rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
-                            ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
-                    saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                            "CONTEXT_FILTER", currentPrice, rsi, momentum, 0.0);
-                    return;
-                }
-                if ((volumeSpikeLong || extremeOversold) && !ctx.supportsLong()) {
-                    logger.info("⚡ LONG context override: extreme oversold RSI={} (volSpike={})",
-                            String.format("%.2f", rsi), volumeSpikeLong);
-                }
-                if (requireConfluence && !ctx.isConfluence()) {
-                    logger.info("❌ LONG rejected: no trend confluence across timeframes");
-                    saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                            "NO_CONFLUENCE", currentPrice, rsi, momentum, 0.0);
-                    return;
-                }
-                if (requireVolume && !marketContextAnalyzer.hasEnoughVolume(ctx)) {
-                    logger.info("❌ LONG rejected: volume too low (ratio={})", String.format("%.2f", ctx.getRelativeVolume()));
-                    saveRejection(sym, "LONG", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                            "CONTEXT_VOLUME_LOW", currentPrice, rsi, momentum, 0.0);
-                    return;
-                }
-            }
-
-            String entryType;
-            if (meanReversionCondition) entryType = "Mean-Reversion";
-            else if (breakoutCondition) entryType = "Breakout";
-            else entryType = "Trend-Dip";
-
-            // Delta volume filter: for LONG, require net buying pressure (except breakouts which imply it)
-            if (useDeltaVolumeFilter && !breakoutCondition && deltaVolumeRatio < deltaVolumeThreshold) {
-                logger.info("❌ LONG {} rejected: sell pressure dominant (delta ratio: {}, need > {}).",
-                        entryType, String.format("%.2f", deltaVolumeRatio), String.format("%.2f", deltaVolumeThreshold));
-                saveRejection(sym, "LONG", entryType, "DELTA_VOLUME_FILTER", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            // Stoch+BB confirmation filter (optional, config-gated)
-            if (useStochBbFilter) {
-                boolean stochOversold5m = stochK5m < stochOversoldThreshold;
-                double price = currentPrice.doubleValue();
-                double lowerBandGap = indicatorCalculator.getBBDistancePct(price, bbLower); // >0 means price above lower band
-                boolean nearLowerBand = lowerBandGap <= bbProximityPct && lowerBandGap >= -1.0; // within bbProximityPct% above or below lower band
-                boolean stoch15mOk = stochK15m < stoch15mLongMax; // 15m leaning oversold (not in uptrend)
-                if (!(stochOversold5m && nearLowerBand && stoch15mOk)) {
-                    logger.info("❌ LONG rejected by Stoch+BB: stochK5m={} (need <{}) lowerBandGap={}% (need <{}%) stochK15m={} (need <{})",
-                            String.format("%.1f", stochK5m), stochOversoldThreshold,
-                            String.format("%.2f", lowerBandGap), bbProximityPct,
-                            String.format("%.1f", stochK15m), stoch15mLongMax);
-                    saveRejection(sym, "LONG", entryType, "STOCH_BB_FILTER", currentPrice, rsi, momentum, 0.0);
-                    return;
-                }
-                logger.info("✅ Stoch+BB LONG confirmed: stochK5m={} lowerBandGap={}% stochK15m={} (<{})",
-                        String.format("%.1f", stochK5m), String.format("%.2f", lowerBandGap),
-                        String.format("%.1f", stochK15m), stoch15mLongMax);
-            }
-
-            // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
-            // Bypass when RSI is extremely oversold (< 20) AND volume is not anomalously high (< 3x)
-            // High volume = momentum/crash in progress, NOT exhaustion — do NOT bypass filters
-            boolean extremeOversoldBypass = rsi < 20.0 && relativeVolume < 3.0;
-            if (useRejectionCandleFilter && meanReversionCondition && !extremeOversoldBypass && !isRejectionCandleForLong(currentKline)) {
-                logger.info("❌ LONG {} rejected: no rejection candle at lower BB (wick too small)", entryType);
-                saveRejection(sym, "LONG", entryType, "NO_REJECTION_CANDLE", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-            if (extremeOversoldBypass && useRejectionCandleFilter) {
-                logger.info("⚡ Rejection candle bypassed: RSI={} < 20 (extreme oversold)", String.format("%.2f", rsi));
-            }
-
-            // Liquidity sweep filter: detect price sweeping a recent swing low with long wick + close back
-            // Bypass when RSI is extremely oversold (< 20) — extreme readings are sufficient confirmation alone
-            if (useLiquiditySweepFilter && meanReversionCondition && !extremeOversoldBypass && !hasLiquiditySweepForLong(klines, currentKline, liquiditySweepLookback)) {
-                logger.info("❌ LONG {} rejected: no liquidity sweep detected at lower BB", entryType);
-                saveRejection(sym, "LONG", entryType, "NO_LIQUIDITY_SWEEP", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-            if (extremeOversoldBypass && useLiquiditySweepFilter) {
-                logger.info("⚡ Liquidity sweep bypassed: RSI={} < 20 (extreme oversold)", String.format("%.2f", rsi));
-            }
-
-            // Auto-adjust: skip if this setup has been disabled due to poor performance
-            if (!autoAdjustService.isSetupEnabled("LONG", entryType)) {
-                logger.info("🚫 LONG {} entry blocked by auto-adjust (poor recent performance).", entryType);
-                saveRejection(sym, "LONG", entryType, "AUTO_ADJUST_BLOCKED", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            logger.info("🟢 LONG SIGNAL DETECTED ({})! RSI: {} (prev: {}), BuyZone: {}, RevUp: {}, Breakout: {}, TrendDip: {}, Volume: {}x, Momentum: {}",
-                    entryType, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
-                    inBuyZone, rsiReversingUp, breakoutAbove, trendDipCondition,
-                    String.format("%.2f", relativeVolume), String.format("%.4f", momentum));
-
-            Signal signal = new Signal(
-                    sym,
-                    "LONG",
-                    currentPrice,
-                    BigDecimal.valueOf(rsi),
-                    BigDecimal.valueOf(sessionLow),
-                    BigDecimal.valueOf(sessionHigh),
-                    BigDecimal.valueOf(momentum),
-                    inBuyZone,
-                    inSellZone
-            );
-            signal.setSetupType(entryType);
-            signal.setUserId(userId);
-            if (bbLower > 0) {
-                signal.setBbLower(BigDecimal.valueOf(bbLower).setScale(8, java.math.RoundingMode.HALF_UP));
-                signal.setBbMid(BigDecimal.valueOf(bbMid).setScale(8, java.math.RoundingMode.HALF_UP));
-                signal.setBbUpper(BigDecimal.valueOf(bbUpper).setScale(8, java.math.RoundingMode.HALF_UP));
-            }
-            signal.setStochK5m(stochK5m);
-            signal.setStochD5m(stochD5m);
-
-            // Regression channel filter: for mean-reversion LONG, price should be in lower half of channel
-            // Bypassed when extreme oversold or volume spike override is active (capitulation event)
-            boolean regressionOverride = extremeOversold || volumeSpikeLong;
-
-            if (useRegressionFilter && channel != null && (meanReversionCondition || trendDipCondition)) {
-                if (channel.getPricePosition() > 0.65) {
-                    if (regressionOverride) {
-                        logger.info("⚡ Regression channel bypassed: price at {}% but extreme signal active (oversold={} volSpike={})",
-                                String.format("%.0f", channel.getPricePosition() * 100), extremeOversold, volumeSpikeLong);
-                    } else {
-                        logger.info("❌ LONG rejected: price at {}% of regression channel (upper zone, need <65%)",
-                                String.format("%.0f", channel.getPricePosition() * 100));
-                        saveRejection(sym, "LONG", entryType, "REGRESSION_FILTER", currentPrice, rsi, momentum, 0.0);
-                        return;
-                    }
-                }
-                if (channel.getPricePosition() > 0.5) {
-                    logger.info("⚠️ LONG warning: price at {}% of regression channel (mid-upper zone)",
-                            String.format("%.0f", channel.getPricePosition() * 100));
-                }
-            }
-
-            // Anti-Crash filter: do not buy when regression channel is strongly DOWN
-            boolean channelDown = useRegressionFilter && channel != null
-                    && channel.getDirection() == LinearRegressionChannel.ChannelDirection.DOWN
-                    && channel.getSlopePct() <= -antiCrashSlopeThreshold;
-            if (channelDown && !extremeOversold) {
-                logger.info("❌ LONG rejected: channel strongly DOWN (slope: {}%), buying a crash is dangerous",
-                        String.format("%.3f", channel.getSlopePct()));
-                saveRejection(sym, "LONG", entryType, "ANTI_CRASH_FILTER", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            // Trend-Dip in downtrend filter: avoid dip-buying when daily trend is DOWN
-            if (trendDipCondition && ctx != null && ctx.getTrend1d() == MarketContext.TrendDirection.DOWN) {
-                logger.info("❌ LONG rejected: trend1d is DOWN, avoiding dip-buying in bearish daily (RSI: {})",
-                        String.format("%.2f", rsi));
-                saveRejection(sym, "LONG", entryType, "TREND_DIP_DOWNTREND", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            enrichSignalWithContext(signal, ctx);
-            String note = projection != null ? projection.toAlertString() : "";
-            if (channel != null) {
-                note = note + (note.isEmpty() ? "" : "\n\n") + channel.toAlertString();
-            }
-            if (!note.isEmpty()) signal.setProjectionNote(note);
-            if (tradeManager.isReEntryEligible(sym, "LONG")) {
-                signal.setReEntry(true);
-                signal.setPositionSizeFactor(0.5);
-                logger.info("🔁 Re-entry eligible for LONG {} — using 50% position size", sym);
-            }
-            signalRepository.save(signal);
-            tradeManager.executeLongEntry(signal);
-        } else {
-            boolean channelDownReject = useRegressionFilter && channel != null
-                    && channel.getDirection() == LinearRegressionChannel.ChannelDirection.DOWN
-                    && channel.getSlopePct() <= -antiCrashSlopeThreshold;
-            boolean trend1dDownReject = ctx != null && ctx.getTrend1d() == MarketContext.TrendDirection.DOWN;
-            logger.info("No LONG signal. MeanRev(RSI<{}:{}, BuyZone:{}, RevUp:{}) Breakout(Above:{}, Vol>1:{}) TrendDip(channelUp:{}, pos<40%:{}, RSI<{}:{}, t1dDown:{}) AntiCrash(channelDown:{})",
-                    rsiOversold, rsi < rsiOversold, inBuyZone, rsiReversingUp, breakoutAbove, relativeVolume >= 1.0,
-                    channel != null && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP && channel.getSlopePct() >= trendDipChannelSlope,
-                    channel != null && channel.getPricePosition() < 0.40,
-                    trendDipRsiThreshold, rsi < trendDipRsiThreshold, trend1dDownReject,
-                    channelDownReject);
-        }
-    }
-
-    private void evaluateShortEntry(BigDecimal currentPrice, double rsi, double previousRsi, double sessionLow, double sessionHigh, double momentum, boolean inBuyZone, boolean inSellZone, boolean breakoutBelow, double relativeVolume, MarketContext ctx, BigDecimal vwap, double ema9, PriceProjection projection, LinearRegressionChannel channel, double deltaVolumeRatio, double stochK5m, double stochD5m, double stochK15m, double bbUpper, double bbMid, double bbLower, String sym, Long userId, boolean marketInBalance, boolean absorptionDetected, Kline currentKline, List<Kline> klines, double ema200Daily) {
-        boolean rsiReversingDown = rsi < previousRsi;
-
-        // Dynamic RSI threshold: higher bar when shorting into strong uptrend
-        double effectiveRsiOverbought = rsiOverbought;
-        boolean strongUptrend = false;
-        if (ctx != null && ctx.getTrend1h() == MarketContext.TrendDirection.UP && ctx.getTrend4h() == MarketContext.TrendDirection.UP) {
-            effectiveRsiOverbought = rsiOverboughtUptrend;
-            strongUptrend = true;
-        }
-
-        boolean meanReversionCondition = rsi > effectiveRsiOverbought && inSellZone && (!requireRsiReversal || rsiReversingDown);
-        boolean extremeOverbought = rsi > (100 - emaExtremeRsiThreshold);
-        boolean volumeSpikeShort = rsi > (100 - oversoldSpikeRsiThreshold)
-                && relativeVolume >= oversoldSpikeVolumeThreshold
-                && rsiReversingDown;
-        boolean breakoutCondition = useBreakout && breakoutBelow && relativeVolume >= 1.0;
-
-        // Trend-following pullback: short the bounce within a downtrending regression channel
-        boolean trendDipShortCondition = useTrendDipLong
-                && channel != null
-                && channel.getDirection() == LinearRegressionChannel.ChannelDirection.DOWN
-                && channel.getSlopePct() <= -trendDipChannelSlope
-                && channel.getPricePosition() > 0.60
-                && rsi > (100 - trendDipRsiThreshold);
-
-        // In strong uptrend, require at least 2 strong conditions (high RSI + high volume or breakout)
-        // Trend-dip is excluded from uptrend protection (shorting into downtrend is the point)
-        if (strongUptrend && (meanReversionCondition || breakoutCondition) && !trendDipShortCondition) {
-            int strongConditions = 0;
-            if (rsi > effectiveRsiOverbought) strongConditions++;
-            if (relativeVolume >= shortMinVolumeUptrend) strongConditions++;
-            if (breakoutCondition) strongConditions++;
-            if (strongConditions < shortMinConditionsUptrend) {
-                logger.info("❌ SHORT rejected: only {} strong conditions met in uptrend (need {}). RSI={}, Vol={}x",
-                        strongConditions, shortMinConditionsUptrend,
-                        String.format("%.2f", rsi), String.format("%.2f", relativeVolume));
-                saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                        "UPTREND_CONDITIONS", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-        }
-
-        // Balance filter: invalidate breakout when market is in consolidation/chop
-        if (useBalanceFilter && marketInBalance && breakoutCondition) {
-            logger.info("❌ SHORT Breakout rejected: market in balance (consolidation/chop) — breakouts fail 70% of time here");
-            saveRejection(sym, "SHORT", "Breakout", "BALANCE_FILTER", currentPrice, rsi, momentum, 0.0);
-            breakoutCondition = false;
-        }
-
-        // Absorption filter: for mean-reversion, require institutional footprint at key level
-        if (useAbsorptionFilter && meanReversionCondition && !absorptionDetected && !volumeSpikeShort && !extremeOverbought) {
-            logger.info("❌ SHORT Mean-Reversion rejected: no absorption detected at this level (vol not spiking with small range)");
-            saveRejection(sym, "SHORT", "Mean-Reversion", "ABSORPTION_FILTER", currentPrice, rsi, momentum, 0.0);
-            meanReversionCondition = false;
-        }
-
-        if (meanReversionCondition || breakoutCondition || trendDipShortCondition) {
-            if (tradeManager.hasOpenPosition(sym, userId, "SHORT")) {
-                logger.info("SHORT position already open for userId={} symbol={}. Skipping.", userId, sym);
-                return;
-            }
-
-            // EMA 200 daily macro filter: only SHORT when price is below EMA200(1d) — macro trend must be DOWN
-            if (ema200Daily > 0 && currentPrice.doubleValue() > ema200Daily) {
-                logger.info("❌ SHORT rejected: price {} > EMA200(1d) {} — macro trend UP, only LONGs allowed for {}",
-                        String.format("%.4f", currentPrice.doubleValue()), String.format("%.4f", ema200Daily), sym);
-                saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                        "EMA200_MACRO_FILTER", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            // Volume filter: reject mean-reversion SHORT when volume is too low (no selling pressure)
-            if (meanReversionCondition && relativeVolume < 0.5 && !volumeSpikeShort) {
-                logger.info("❌ SHORT rejected: volume too low for mean-reversion ({}x, need >= 0.5x). RSI={}, no selling pressure.",
-                        String.format("%.2f", relativeVolume), String.format("%.2f", rsi));
-                saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                        "VOLUME_LOW", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            // Anti-pump filter: do not short mean-reversion when regression channel is strongly UP
-            if (useRegressionFilter && meanReversionCondition && channel != null
-                    && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP
-                    && channel.getSlopePct() >= antiPumpSlopeThreshold) {
-                logger.info("❌ SHORT rejected: channel strongly UP (slope: {}%), shorting a pump is dangerous",
-                        String.format("%.3f", channel.getSlopePct()));
-                saveRejection(sym, "SHORT", "Mean-Reversion", "ANTI_PUMP_FILTER", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            // 4h uptrend block for Mean-Reversion SHORT: if 4h is UP, avoid mean-reversion shorts (sustained uptrend)
-            if (blockShortOn4hUptrend && meanReversionCondition && !volumeSpikeShort
-                    && ctx != null && ctx.getTrend4h() == MarketContext.TrendDirection.UP) {
-                logger.info("❌ SHORT rejected: 4h trend is UP — mean-reversion SHORT in 4h uptrend has poor win rate");
-                saveRejection(sym, "SHORT", "Mean-Reversion", "UPTREND_4H_BLOCK", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            // 1h trend filter for Mean-Reversion SHORT:
-            // If 1h trend is UP and price is above VWAP, reject — shorting a pump above VWAP is too risky
-            if (useTrend1hMeanRevFilter && meanReversionCondition && !volumeSpikeShort
-                    && ctx != null && ctx.getTrend1h() == MarketContext.TrendDirection.UP
-                    && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0
-                    && currentPrice.compareTo(vwap) > 0) {
-                logger.info("❌ SHORT rejected: Mean-Rev but trend1h=UP and price {} > VWAP {} — avoid shorting a pump above VWAP",
-                        String.format("%.4f", currentPrice.doubleValue()), String.format("%.4f", vwap.doubleValue()));
-                saveRejection(sym, "SHORT", "Mean-Reversion", "TREND1H_MEANREV_FILTER", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            // VWAP filter: SHORT only within VWAP ± band%
-            // Hierarchy: allow override when Stoch+BB confirms extreme overbought (price near BB upper + stoch > 80)
-            if (useVwapFilter && vwap != null && vwap.compareTo(BigDecimal.ZERO) > 0) {
-                double price = currentPrice.doubleValue();
-                double vwapVal = vwap.doubleValue();
-                double lower = vwapVal * (1 - vwapBandPct / 100.0);
-                double upper = vwapVal * (1 + vwapBandPct / 100.0);
-                if (price < lower || price > upper) {
-                    boolean stochExtremeOverbought = stochK5m > stochOverboughtThreshold;
-                    double upperBandGap = indicatorCalculator.getBBDistancePct(price, bbUpper);
-                    boolean nearUpperBand = upperBandGap >= -bbProximityPct && upperBandGap <= 1.0;
-                    if (useStochBbFilter && stochExtremeOverbought && nearUpperBand) {
-                        logger.info("⚡ VWAP filter bypassed: Stoch+BB extreme overbought (stochK5m={} > {}, upperBandGap={}%)",
-                                String.format("%.1f", stochK5m), stochOverboughtThreshold, String.format("%.2f", upperBandGap));
-                    } else {
-                        logger.info("❌ SHORT rejected: price {} outside VWAP band [{}, {}]", String.format("%.4f", price), String.format("%.4f", lower), String.format("%.4f", upper));
-                        saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                                "VWAP_FILTER", currentPrice, rsi, momentum, Math.abs(price - vwapVal) / vwapVal * 100.0);
-                        return;
-                    }
-                }
-            }
-
-            // EMA filter: SHORT only if price > EMA (mean-reversion from overbought above EMA)
-            // Exception: skip EMA filter when RSI is extremely overbought (> 100 - emaExtremeRsiThreshold)
-            if (useEmaFilter && ema9 > 0 && !extremeOverbought && currentPrice.doubleValue() <= ema9) {
-                logger.info("❌ SHORT rejected: price {} below EMA{} {}", String.format("%.4f", currentPrice.doubleValue()), emaPeriod, String.format("%.4f", ema9));
-                saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                        "EMA_FILTER", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-            if (extremeOverbought && currentPrice.doubleValue() <= ema9) {
-                logger.info("⚡ EMA filter bypassed: RSI={} > {} (extreme overbought)", String.format("%.2f", rsi), (100 - emaExtremeRsiThreshold));
-            }
-
-            // Context filters (only rejects when requireConfluence=true; contextEnabled alone just collects data for UI)
-            if (contextEnabled && requireConfluence && ctx != null) {
-                if (!ctx.supportsShort() && !volumeSpikeShort) {
-                    logger.info("❌ SHORT rejected by market context: trend1h={}, trend4h={}, trend1d={}, BTC={}",
-                            ctx.getTrend1h(), ctx.getTrend4h(), ctx.getTrend1d(), ctx.getBtcTrend1d());
-                    saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                            "CONTEXT_FILTER", currentPrice, rsi, momentum, 0.0);
-                    return;
-                }
-                if (volumeSpikeShort && !ctx.supportsShort()) {
-                    logger.info("⚡ SHORT context override: extreme overbought RSI={} + volume spike {}x (threshold: {}x)",
-                            String.format("%.2f", rsi), String.format("%.2f", relativeVolume), oversoldSpikeVolumeThreshold);
-                }
-                if (requireConfluence && !ctx.isConfluence()) {
-                    logger.info("❌ SHORT rejected: no trend confluence across timeframes");
-                    saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                            "NO_CONFLUENCE", currentPrice, rsi, momentum, 0.0);
-                    return;
-                }
-                if (requireVolume && !marketContextAnalyzer.hasEnoughVolume(ctx)) {
-                    logger.info("❌ SHORT rejected: volume too low (ratio={})", String.format("%.2f", ctx.getRelativeVolume()));
-                    saveRejection(sym, "SHORT", meanReversionCondition ? "Mean-Reversion" : (breakoutCondition ? "Breakout" : "Trend-Dip"),
-                            "CONTEXT_VOLUME_LOW", currentPrice, rsi, momentum, 0.0);
-                    return;
-                }
-            }
-
-            // Trend-Dip in uptrend filter: avoid shorting bounces when daily trend is UP
-            if (trendDipShortCondition && ctx != null && ctx.getTrend1d() == MarketContext.TrendDirection.UP) {
-                logger.info("❌ SHORT rejected: trend1d is UP, avoiding shorting bounce in bullish daily (RSI: {})",
-                        String.format("%.2f", rsi));
-                saveRejection(sym, "SHORT", "Trend-Dip", "TREND_DIP_UPTREND", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            String entryType;
-            if (meanReversionCondition) entryType = "Mean-Reversion";
-            else if (breakoutCondition) entryType = "Breakout";
-            else entryType = "Trend-Dip";
-
-            // Delta volume filter: for SHORT, require net selling pressure (except breakouts which imply it)
-            if (useDeltaVolumeFilter && !breakoutCondition && deltaVolumeRatio > -deltaVolumeThreshold) {
-                logger.info("❌ SHORT {} rejected: buy pressure dominant (delta ratio: {}, need < -{}).",
-                        entryType, String.format("%.2f", deltaVolumeRatio), String.format("%.2f", deltaVolumeThreshold));
-                saveRejection(sym, "SHORT", entryType, "DELTA_VOLUME_FILTER", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            // Stoch+BB confirmation filter (optional, config-gated)
-            // In macro=DOWN environment, relax stoch threshold to allow SHORTs when Stoch doesn't reach 85
-            if (useStochBbFilter) {
-                boolean macroDown = ema200Daily > 0 && currentPrice.doubleValue() < ema200Daily;
-                double effectiveStochThreshold = macroDown ? stochOverboughtMacroDown : stochOverboughtThreshold;
-                boolean stochOverbought5m = stochK5m > effectiveStochThreshold;
-                double price = currentPrice.doubleValue();
-                double upperBandGap = indicatorCalculator.getBBDistancePct(price, bbUpper); // <0 means price below upper band
-                boolean nearUpperBand = upperBandGap >= -bbProximityPct && upperBandGap <= 1.0; // within bbProximityPct% below or above upper band
-                boolean stoch15mOk = stochK15m > stoch15mShortMin; // 15m leaning overbought (not in downtrend)
-                if (!(stochOverbought5m && nearUpperBand && stoch15mOk)) {
-                    logger.info("❌ SHORT rejected by Stoch+BB: stochK5m={} (need >{}{}) upperBandGap={}% (need >-{}%) stochK15m={} (need >{})",
-                            String.format("%.1f", stochK5m), effectiveStochThreshold, macroDown ? " macro-down" : "",
-                            String.format("%.2f", upperBandGap), bbProximityPct,
-                            String.format("%.1f", stochK15m), stoch15mShortMin);
-                    saveRejection(sym, "SHORT", entryType, "STOCH_BB_FILTER", currentPrice, rsi, momentum, 0.0);
-                    return;
-                }
-                logger.info("✅ Stoch+BB SHORT confirmed: stochK5m={} (thr={}{}) upperBandGap={}% stochK15m={} (>{})",
-                        String.format("%.1f", stochK5m), effectiveStochThreshold, macroDown ? " macro-down" : "",
-                        String.format("%.2f", upperBandGap),
-                        String.format("%.1f", stochK15m), stoch15mShortMin);
-            }
-
-            // Rejection candle filter: require a wick-based reversal candle at BB extremes for mean-reversion
-            // Bypass when RSI is extremely overbought (> 80) AND volume is not anomalously high (< 3x)
-            // High volume = pump in progress, NOT exhaustion — do NOT bypass filters (e.g. SOL 10.34x pump)
-            boolean extremeOverboughtBypass = rsi > rejectionCandleBypassRsi && relativeVolume < 3.0;
-            if (useRejectionCandleFilter && meanReversionCondition && !extremeOverboughtBypass && !isRejectionCandleForShort(currentKline)) {
-                logger.info("❌ SHORT {} rejected: no rejection candle at upper BB (wick too small)", entryType);
-                saveRejection(sym, "SHORT", entryType, "NO_REJECTION_CANDLE", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-            if (extremeOverboughtBypass && useRejectionCandleFilter) {
-                logger.info("⚡ Rejection candle bypassed: RSI={} > {} (extreme overbought)", String.format("%.2f", rsi), String.format("%.0f", rejectionCandleBypassRsi));
-            }
-
-            // Liquidity sweep filter: detect price sweeping a recent swing high with long wick + close back
-            // Bypass when RSI is extremely overbought (> 80) — extreme readings are sufficient confirmation alone
-            if (useLiquiditySweepFilter && meanReversionCondition && !extremeOverboughtBypass && !hasLiquiditySweepForShort(klines, currentKline, liquiditySweepLookback)) {
-                logger.info("❌ SHORT {} rejected: no liquidity sweep detected at upper BB", entryType);
-                saveRejection(sym, "SHORT", entryType, "NO_LIQUIDITY_SWEEP", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-            if (extremeOverboughtBypass && useLiquiditySweepFilter) {
-                logger.info("⚡ Liquidity sweep bypassed: RSI={} > 80 (extreme overbought)", String.format("%.2f", rsi));
-            }
-
-            // Auto-adjust: skip if this setup has been disabled due to poor performance
-            if (!autoAdjustService.isSetupEnabled("SHORT", entryType)) {
-                logger.info("🚫 SHORT {} entry blocked by auto-adjust (poor recent performance).", entryType);
-                saveRejection(sym, "SHORT", entryType, "AUTO_ADJUST_BLOCKED", currentPrice, rsi, momentum, 0.0);
-                return;
-            }
-
-            logger.info("🔴 SHORT SIGNAL DETECTED ({})! RSI: {} (prev: {}), SellZone: {}, RevDown: {}, Breakout: {}, TrendDip: {}, Volume: {}x, Momentum: {}",
-                    entryType, String.format("%.2f", rsi), String.format("%.2f", previousRsi),
-                    inSellZone, rsiReversingDown, breakoutBelow, trendDipShortCondition,
-                    String.format("%.2f", relativeVolume), String.format("%.4f", momentum));
-
-            Signal signal = new Signal(
-                    sym,
-                    "SHORT",
-                    currentPrice,
-                    BigDecimal.valueOf(rsi),
-                    BigDecimal.valueOf(sessionLow),
-                    BigDecimal.valueOf(sessionHigh),
-                    BigDecimal.valueOf(momentum),
-                    inBuyZone,
-                    inSellZone
-            );
-            signal.setSetupType(entryType);
-            signal.setUserId(userId);
-            if (bbUpper > 0) {
-                signal.setBbLower(BigDecimal.valueOf(bbLower).setScale(8, java.math.RoundingMode.HALF_UP));
-                signal.setBbMid(BigDecimal.valueOf(bbMid).setScale(8, java.math.RoundingMode.HALF_UP));
-                signal.setBbUpper(BigDecimal.valueOf(bbUpper).setScale(8, java.math.RoundingMode.HALF_UP));
-            }
-            signal.setStochK5m(stochK5m);
-            signal.setStochD5m(stochD5m);
-
-            // Regression channel filter: for mean-reversion SHORT, price should be in upper half of channel
-            // Bypassed when extreme overbought or volume spike override is active (blow-off top event)
-            boolean regressionOverrideShort = extremeOverbought || volumeSpikeShort;
-
-            if (useRegressionFilter && channel != null && (meanReversionCondition || trendDipShortCondition)) {
-                if (channel.getPricePosition() < 0.35) {
-                    if (regressionOverrideShort) {
-                        logger.info("⚡ Regression channel bypassed: price at {}% but extreme signal active (overbought={} volSpike={})",
-                                String.format("%.0f", channel.getPricePosition() * 100), extremeOverbought, volumeSpikeShort);
-                    } else {
-                        logger.info("❌ SHORT rejected: price at {}% of regression channel (lower zone, need >35%)",
-                                String.format("%.0f", channel.getPricePosition() * 100));
-                        saveRejection(sym, "SHORT", entryType, "REGRESSION_FILTER", currentPrice, rsi, momentum, 0.0);
-                        return;
-                    }
-                }
-                if (channel.getPricePosition() < 0.5) {
-                    logger.info("⚠️ SHORT warning: price at {}% of regression channel (mid-lower zone)",
-                            String.format("%.0f", channel.getPricePosition() * 100));
-                }
-            }
-
-            enrichSignalWithContext(signal, ctx);
-            String note = projection != null ? projection.toAlertString() : "";
-            if (channel != null) {
-                note = note + (note.isEmpty() ? "" : "\n\n") + channel.toAlertString();
-            }
-            if (!note.isEmpty()) signal.setProjectionNote(note);
-            if (tradeManager.isReEntryEligible(sym, "SHORT")) {
-                signal.setReEntry(true);
-                signal.setPositionSizeFactor(0.5);
-                logger.info("🔁 Re-entry eligible for SHORT {} — using 50% position size", sym);
-            }
-            signalRepository.save(signal);
-            tradeManager.executeShortEntry(signal);
-        } else {
-            boolean channelUp = channel != null && channel.getDirection() == LinearRegressionChannel.ChannelDirection.UP
-                    && channel.getSlopePct() >= antiPumpSlopeThreshold;
-            logger.info("No SHORT signal. MeanRev(RSI>{}:{}, SellZone:{}, RevDown:{}) Breakout(Below:{}, Vol>1:{}) TrendDip(channelDown:{}, pos>60%:{}, RSI>{}:{}) AntiPump(channelUP+strongSlope:{}, slope:{}%){}",
-                    effectiveRsiOverbought, rsi > effectiveRsiOverbought, inSellZone, rsiReversingDown, breakoutBelow, relativeVolume >= 1.0,
-                    channel != null && channel.getDirection() == LinearRegressionChannel.ChannelDirection.DOWN && channel.getSlopePct() <= -trendDipChannelSlope,
-                    channel != null && channel.getPricePosition() > 0.60,
-                    100 - trendDipRsiThreshold, rsi > (100 - trendDipRsiThreshold),
-                    channelUp, channel != null ? String.format("%.3f", channel.getSlopePct()) : "N/A",
-                    strongUptrend ? " [uptrend-mode]" : "");
-        }
-    }
-
-    private void evaluateBreakoutEntry(BigDecimal currentPrice, List<Kline> klines,
-                                        String sym, Long userId, MarketContext ctx) {
-        RangeBreakoutResult breakout = indicatorCalculator.detectRangeBreakout(
-                klines, breakoutLookback, breakoutMaxRangePct, breakoutVolumeMultiplier);
-        if (breakout == null) return;
-
-        boolean isLong = "LONG".equals(breakout.getDirection());
-
-        if (tradeManager.hasOpenPosition(sym, userId, breakout.getDirection())) return;
-
-        logger.info("💥 BREAKOUT {} detected for {}! Range: {}-{} ({}%), Vol: {}x, SL: {}",
-                breakout.getDirection(), sym,
-                String.format("%.4f", breakout.getRangeLow()),
-                String.format("%.4f", breakout.getRangeHigh()),
-                String.format("%.2f", breakout.getRangePct()),
-                String.format("%.1f", breakout.getVolumeRatio()),
-                String.format("%.4f", breakout.getBreakoutSl()));
-
+    /**
+     * Pure SMC entry: builds a minimal signal and delegates to TradeManager, which applies
+     * the structural SL + >=1:2 R:R filter (and aborts the order if it is not achievable).
+     * No BB/Stochastic/RSI/VWAP/EMA confirmation is used in this path.
+     */
+    private void fireSmcEntry(String sym, Long userId, BigDecimal currentPrice, String action, MarketContext ctx) {
         Signal signal = new Signal();
         signal.setSymbol(sym);
-        signal.setAction(breakout.getDirection());
+        signal.setAction(action);
         signal.setPrice(currentPrice);
-        signal.setSetupType(isLong ? "BREAKOUT_LONG" : "BREAKOUT_SHORT");
+        signal.setSetupType("SMC_" + action);
         signal.setUserId(userId);
         if (ctx != null) enrichSignalWithContext(signal, ctx);
-
-        if (tradeManager.isReEntryEligible(sym, breakout.getDirection())) {
+        if (tradeManager.isReEntryEligible(sym, action)) {
             signal.setReEntry(true);
             signal.setPositionSizeFactor(0.5);
         }
-
         signalRepository.save(signal);
-        if (isLong) {
+        logger.info("🎯 SMC {} entry for {} @ {} (structural SL + R:R enforced in TradeManager)",
+                action, sym, currentPrice);
+        if ("LONG".equals(action)) {
             tradeManager.executeLongEntry(signal);
         } else {
             tradeManager.executeShortEntry(signal);
@@ -1287,73 +664,6 @@ public class HypeStrategy {
         return !disabledSymbols.contains(sym);
     }
 
-    // ============== Rejection candle filter (wick-based reversal at extremes) ==============
-    private boolean isRejectionCandleForLong(Kline k) {
-        if (k == null || k.getOpen() == null || k.getClose() == null || k.getHigh() == null || k.getLow() == null) return false;
-        double open = k.getOpen().doubleValue();
-        double close = k.getClose().doubleValue();
-        double high = k.getHigh().doubleValue();
-        double low = k.getLow().doubleValue();
-        double body = Math.abs(close - open);
-        double lowerWick = Math.min(open, close) - low;
-        double upperWick = high - Math.max(open, close);
-        // Require lower wick >= minWickRatio × body, and close near the high (buying pressure)
-        if (body == 0) return lowerWick > 0 && close >= high * 0.999;
-        return lowerWick >= body * rejectionCandleMinWickRatio && close >= high - (high - low) * 0.35 && close > open;
-    }
-
-    private boolean isRejectionCandleForShort(Kline k) {
-        if (k == null || k.getOpen() == null || k.getClose() == null || k.getHigh() == null || k.getLow() == null) return false;
-        double open = k.getOpen().doubleValue();
-        double close = k.getClose().doubleValue();
-        double high = k.getHigh().doubleValue();
-        double low = k.getLow().doubleValue();
-        double body = Math.abs(close - open);
-        double upperWick = high - Math.max(open, close);
-        // Require upper wick >= minWickRatio × body, and close near the low (selling pressure)
-        if (body == 0) return upperWick > 0 && close <= low * 1.001;
-        return upperWick >= body * rejectionCandleMinWickRatio && close <= low + (high - low) * 0.35 && close < open;
-    }
-
-    // ============== Liquidity sweep detection (stop-hunt + close back) ==============
-    private boolean hasLiquiditySweepForLong(List<Kline> klines, Kline current, int lookback) {
-        if (klines == null || klines.size() < lookback + 1 || current == null || current.getLow() == null || current.getClose() == null) return false;
-        double currentLow = current.getLow().doubleValue();
-        double currentClose = current.getClose().doubleValue();
-        // Find the lowest low in the previous `lookback` candles (excluding current)
-        double recentLow = Double.MAX_VALUE;
-        int start = Math.max(0, klines.size() - lookback - 1);
-        int end = klines.size() - 1; // exclude current
-        for (int i = start; i < end; i++) {
-            Kline k = klines.get(i);
-            if (k.getLow() != null) recentLow = Math.min(recentLow, k.getLow().doubleValue());
-        }
-        // Sweep: current low breaks below recent low, but close is back above it (rejection)
-        boolean swept = currentLow < recentLow * 0.9995;
-        boolean recovered = currentClose > recentLow;
-        double wickPct = recentLow > 0 ? (recentLow - currentLow) / recentLow * 100.0 : 0;
-        return swept && recovered && wickPct > 0.05;
-    }
-
-    private boolean hasLiquiditySweepForShort(List<Kline> klines, Kline current, int lookback) {
-        if (klines == null || klines.size() < lookback + 1 || current == null || current.getHigh() == null || current.getClose() == null) return false;
-        double currentHigh = current.getHigh().doubleValue();
-        double currentClose = current.getClose().doubleValue();
-        // Find the highest high in the previous `lookback` candles (excluding current)
-        double recentHigh = 0;
-        int start = Math.max(0, klines.size() - lookback - 1);
-        int end = klines.size() - 1; // exclude current
-        for (int i = start; i < end; i++) {
-            Kline k = klines.get(i);
-            if (k.getHigh() != null) recentHigh = Math.max(recentHigh, k.getHigh().doubleValue());
-        }
-        // Sweep: current high breaks above recent high, but close is back below it (rejection)
-        boolean swept = currentHigh > recentHigh * 1.0005;
-        boolean recovered = currentClose < recentHigh;
-        double wickPct = recentHigh > 0 ? (currentHigh - recentHigh) / recentHigh * 100.0 : 0;
-        return swept && recovered && wickPct > 0.05;
-    }
-
     // Phase 3.1: Rejection tracking helper
     private void saveRejection(String symbol, String action, String setupType, String reason,
                                BigDecimal price, double rsi, double momentum, double vwapDist) {
@@ -1370,37 +680,37 @@ public class HypeStrategy {
 
     // ============== Per-symbol config helpers ==============
 
-    private int getSymbolBbPeriod(String sym) {
-        if (symbolBbPeriodConfig != null && !symbolBbPeriodConfig.isEmpty()) {
-            for (String entry : symbolBbPeriodConfig.split(",")) {
-                String[] parts = entry.trim().split(":");
-                if (parts.length == 2 && parts[0].trim().equalsIgnoreCase(sym)) {
-                    try { return Integer.parseInt(parts[1].trim()); } catch (NumberFormatException ignored) {}
-                }
-            }
-        }
-        return bbPeriod;
-    }
-
     /**
-     * Returns true if sym has no session restriction, or if current UTC hour is within the
-     * configured window. Format: "EURUSDT:8-17,XAGUSDT:8-21"
+     * Returns true if sym has no session restriction, or if the current UTC hour is inside
+     * any of the configured windows. Symbols are comma-separated; a symbol maps to one or
+     * more '|'-separated hour windows.
+     *
+     * Format (Kill Zones): "EURUSD:0-3|7-10|12-15,GBPUSD:0-3|7-10|12-15"
+     *   0-3   = Asia (Tokyo) kill zone
+     *   7-10  = London kill zone
+     *   12-15 = New York kill zone
+     * A window that wraps midnight (e.g. 23-2) is supported.
      */
     private boolean isSymbolInSession(String sym) {
         if (symbolSessionConfig == null || symbolSessionConfig.isBlank()) return true;
         for (String entry : symbolSessionConfig.split(",")) {
             String[] parts = entry.trim().split(":");
             if (parts.length == 2 && parts[0].trim().equalsIgnoreCase(sym)) {
-                String[] hours = parts[1].split("-");
-                if (hours.length == 2) {
-                    try {
-                        int start = Integer.parseInt(hours[0].trim());
-                        int end   = Integer.parseInt(hours[1].trim());
-                        int utcH  = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).getHour();
-                        return utcH >= start && utcH < end;
-                    } catch (NumberFormatException ignored) {}
+                int utcH = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).getHour();
+                for (String window : parts[1].split("\\|")) {
+                    String[] hours = window.trim().split("-");
+                    if (hours.length == 2) {
+                        try {
+                            int start = Integer.parseInt(hours[0].trim());
+                            int end   = Integer.parseInt(hours[1].trim());
+                            boolean inWindow = (start <= end)
+                                    ? (utcH >= start && utcH < end)          // normal window
+                                    : (utcH >= start || utcH < end);         // wraps midnight
+                            if (inWindow) return true;
+                        } catch (NumberFormatException ignored) {}
+                    }
                 }
-                return true;
+                return false; // symbol configured but current hour outside all its windows
             }
         }
         return true;
@@ -1423,27 +733,6 @@ public class HypeStrategy {
             }
         }
         return defaultVal;
-    }
-
-    private boolean isEma200FilterActive(String sym) {
-        if (ema200FilterSymbols == null || ema200FilterSymbols.isEmpty()) return false;
-        return java.util.Arrays.stream(ema200FilterSymbols.split(","))
-                .map(String::trim).anyMatch(s -> s.equalsIgnoreCase(sym));
-    }
-
-    private double fetchEma200Daily(String sym) {
-        try {
-            List<Kline> dailyKlines = binanceClient.getKlines(sym, "1d", 210);
-            if (dailyKlines == null || dailyKlines.size() < 200) {
-                logger.warn("⚠️ EMA200 daily: not enough 1d data for {} ({} candles)",
-                        sym, dailyKlines == null ? 0 : dailyKlines.size());
-                return 0;
-            }
-            return indicatorCalculator.calculateEMAFromKlines(dailyKlines, 200);
-        } catch (Exception e) {
-            logger.warn("⚠️ EMA200 daily fetch failed for {}: {}", sym, e.getMessage());
-            return 0;
-        }
     }
 
     public String getStrategyStatus() {
