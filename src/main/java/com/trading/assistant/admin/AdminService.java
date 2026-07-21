@@ -89,20 +89,32 @@ public class AdminService {
     @Value("${trading.strategy.sl-cooldown-minutes:10}")
     private int slCooldownMinutes;
 
-    @Value("${trading.strategy.require-rsi-reversal:true}")
-    private boolean requireRsiReversal;
+    @Value("${trading.strategy.use-htf-structure-filter:false}")
+    private boolean useHtfStructureFilter;
 
-    @Value("${trading.strategy.use-vwap-filter:true}")
-    private boolean useVwapFilter;
+    @Value("${trading.strategy.htf-timeframe:1h}")
+    private String htfTimeframe;
 
-    @Value("${trading.strategy.vwap-band-pct:0.5}")
-    private double vwapBandPct;
+    @Value("${trading.strategy.htf-pivot-strength:3}")
+    private int htfPivotStrength;
 
-    @Value("${trading.strategy.use-ema-filter:true}")
-    private boolean useEmaFilter;
+    @Value("${trading.strategy.use-order-block-filter:false}")
+    private boolean useOrderBlockFilter;
 
-    @Value("${trading.strategy.ema-period:9}")
-    private int emaPeriod;
+    @Value("${trading.strategy.ob-pivot-strength:2}")
+    private int obPivotStrength;
+
+    @Value("${trading.strategy.ob-displacement-atr:1.5}")
+    private double obDisplacementAtr;
+
+    @Value("${trading.strategy.ob-max-blocks:5}")
+    private int obMaxBlocks;
+
+    @Value("${trading.strategy.use-structural-sl:false}")
+    private boolean useStructuralSl;
+
+    @Value("${trading.strategy.rr-min-ratio:2.0}")
+    private double rrMinRatio;
 
     @Value("${trading.context.enabled:true}")
     private boolean contextEnabled;
@@ -125,42 +137,6 @@ public class AdminService {
     @Value("${trading.strategy.breakeven-activation-pct:0.25}")
     private double breakevenActivationPct;
 
-    @Value("${trading.strategy.use-regression-filter:true}")
-    private boolean useRegressionFilter;
-
-    @Value("${trading.strategy.regression-lookback:50}")
-    private int regressionLookback;
-
-    @Value("${trading.strategy.use-delta-volume-filter:true}")
-    private boolean useDeltaVolumeFilter;
-
-    @Value("${trading.strategy.delta-volume-threshold:0.20}")
-    private double deltaVolumeThreshold;
-
-    @Value("${trading.strategy.use-stoch-bb-filter:false}")
-    private boolean useStochBbFilter;
-
-    @Value("${trading.strategy.stoch-period:14}")
-    private int stochPeriod;
-
-    @Value("${trading.strategy.stoch-oversold:20}")
-    private double stochOversold;
-
-    @Value("${trading.strategy.stoch-overbought:80}")
-    private double stochOverbought;
-
-    @Value("${trading.strategy.bb-period:20}")
-    private int bbPeriod;
-
-    @Value("${trading.strategy.bb-std-dev:2.0}")
-    private double bbStdDev;
-
-    @Value("${trading.strategy.bb-proximity-pct:1.0}")
-    private double bbProximityPct;
-
-    @Value("${trading.strategy.use-bb-based-sl:false}")
-    private boolean useBbBasedSl;
-
     @Value("${trading.strategy.auto-adjust-enabled:true}")
     private boolean autoAdjustEnabled;
 
@@ -172,9 +148,6 @@ public class AdminService {
 
     @Value("${trading.risk.max-daily-loss-pct:5.0}")
     private double maxDailyLossPct;
-
-    @Value("${trading.strategy.rsi-overbought-uptrend:85}")
-    private double rsiOverboughtUptrend;
 
     @Value("${telegram.bot.enabled:false}")
     private boolean telegramEnabled;
@@ -191,9 +164,6 @@ public class AdminService {
     @Value("${trading.strategy.symbol-rsi-overbought:}")
     private String symbolRsiOverbought;
 
-    @Value("${trading.strategy.symbol-bb-period:}")
-    private String symbolBbPeriod;
-
     @Value("${trading.strategy.swing-trailing-stop-pct:0.35}")
     private double swingTrailingStopPct;
 
@@ -208,18 +178,6 @@ public class AdminService {
 
     @Value("${trading.strategy.re-entry-window-minutes:15}")
     private int reEntryWindowMinutes;
-
-    @Value("${trading.strategy.use-range-breakout:true}")
-    private boolean useRangeBreakout;
-
-    @Value("${trading.strategy.breakout-lookback:20}")
-    private int breakoutLookback;
-
-    @Value("${trading.strategy.breakout-max-range-pct:2.5}")
-    private double breakoutMaxRangePct;
-
-    @Value("${trading.strategy.breakout-volume-multiplier:2.5}")
-    private double breakoutVolumeMultiplier;
 
     /**
      * Returns all current strategy and system configuration values.
@@ -252,11 +210,15 @@ public class AdminService {
         config.put("maxHoldMinutes", maxHoldMinutes);
         config.put("trailingStopPct", trailingStopPct);
         config.put("slCooldownMinutes", slCooldownMinutes);
-        config.put("requireRsiReversal", requireRsiReversal);
-        config.put("useVwapFilter", useVwapFilter);
-        config.put("vwapBandPct", vwapBandPct);
-        config.put("useEmaFilter", useEmaFilter);
-        config.put("emaPeriod", emaPeriod);
+        config.put("useHtfStructureFilter", useHtfStructureFilter);
+        config.put("htfTimeframe", htfTimeframe);
+        config.put("htfPivotStrength", htfPivotStrength);
+        config.put("useOrderBlockFilter", useOrderBlockFilter);
+        config.put("obPivotStrength", obPivotStrength);
+        config.put("obDisplacementAtr", obDisplacementAtr);
+        config.put("obMaxBlocks", obMaxBlocks);
+        config.put("useStructuralSl", useStructuralSl);
+        config.put("rrMinRatio", rrMinRatio);
 
         config.put("contextEnabled", contextEnabled);
         config.put("requireConfluence", requireConfluence);
@@ -268,40 +230,22 @@ public class AdminService {
         config.put("symbols", symbols);
         config.put("trailingActivationPct", trailingActivationPct);
         config.put("breakevenActivationPct", breakevenActivationPct);
-        config.put("useRegressionFilter", useRegressionFilter);
-        config.put("regressionLookback", regressionLookback);
-        config.put("useDeltaVolumeFilter", useDeltaVolumeFilter);
-        config.put("deltaVolumeThreshold", deltaVolumeThreshold);
-        config.put("useStochBbFilter", useStochBbFilter);
-        config.put("stochPeriod", stochPeriod);
-        config.put("stochOversold", stochOversold);
-        config.put("stochOverbought", stochOverbought);
-        config.put("bbPeriod", bbPeriod);
-        config.put("bbStdDev", bbStdDev);
-        config.put("bbProximityPct", bbProximityPct);
-        config.put("useBbBasedSl", useBbBasedSl);
         config.put("autoAdjustEnabled", autoAdjustEnabled);
         config.put("autoAdjustMinTrades", autoAdjustMinTrades);
         config.put("autoAdjustWinRateThreshold", autoAdjustWinRateThreshold);
         config.put("maxDailyLossPct", maxDailyLossPct);
-        config.put("rsiOverboughtUptrend", rsiOverboughtUptrend);
 
         config.put("telegramEnabled", telegramEnabled);
         config.put("activeExchange", activeExchange);
         config.put("symbolSessionUtc", symbolSessionUtc);
         config.put("symbolRsiOversold", symbolRsiOversold);
         config.put("symbolRsiOverbought", symbolRsiOverbought);
-        config.put("symbolBbPeriod", symbolBbPeriod);
         config.put("swingTrailingStopPct", swingTrailingStopPct);
         config.put("swingTrailingActivationPct", swingTrailingActivationPct);
 
         config.put("partialTpEnabled", partialTpEnabled);
         config.put("reEntryEnabled", reEntryEnabled);
         config.put("reEntryWindowMinutes", reEntryWindowMinutes);
-        config.put("useRangeBreakout", useRangeBreakout);
-        config.put("breakoutLookback", breakoutLookback);
-        config.put("breakoutMaxRangePct", breakoutMaxRangePct);
-        config.put("breakoutVolumeMultiplier", breakoutVolumeMultiplier);
 
         return config;
     }

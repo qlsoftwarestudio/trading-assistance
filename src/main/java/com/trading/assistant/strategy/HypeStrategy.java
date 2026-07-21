@@ -360,12 +360,10 @@ public class HypeStrategy {
     private int obMaxBlocks;
 
     // ── Pure SMC entry mode ──────────────────────────────────────────────────────
-    // When true, entries are driven ONLY by SMC structure: a valid Order Block aligned
-    // with the H1 macro structure, inside a kill zone, with a structural SL and >=1:2 R:R
-    // (enforced in TradeManager). ALL legacy filters (BB, Stochastic, RSI, VWAP, EMA,
-    // rejection candle, liquidity sweep, breakout) are bypassed.
-    @Value("${trading.strategy.use-smc-entry:true}")
-    private boolean useSmcEntry;
+    // Entries are driven ONLY by SMC structure: a valid Order Block aligned with the
+    // H1 macro structure, inside a kill zone, with a structural SL and >=1:2 R:R
+    // (enforced in TradeManager). All legacy filters (BB, Stochastic, RSI, VWAP, EMA,
+    // rejection candle, liquidity sweep, breakout) have been removed.
 
     @Scheduled(fixedRate = 60000)
     public void executeStrategy() {
