@@ -58,18 +58,14 @@ public class ExchangeClientRouter implements ExchangeClient {
     @Override public List<Kline> getKlines(String sym, String interval, int limit)               { return client().getKlines(sym, interval, limit); }
     @Override public void setLeverageForSymbol(String sym, int leverage)                         { client().setLeverageForSymbol(sym, leverage); }
     @Override public void setLeverageForBot(String sym, int lev, String k, String s)             { client().setLeverageForBot(sym, lev, k, s); }
-    @Override public String placeBuyOrder(BigDecimal qty)                                        { return client().placeBuyOrder(qty); }
-    @Override public String placeShortSellOrder(BigDecimal qty)                                  { return client().placeShortSellOrder(qty); }
     @Override public String placeBuyOrderForSymbol(String sym, BigDecimal qty)                   { return client().placeBuyOrderForSymbol(sym, qty); }
     @Override public String placeShortSellOrderForSymbol(String sym, BigDecimal qty)             { return client().placeShortSellOrderForSymbol(sym, qty); }
     @Override public String placeSellOrderForSymbol(String sym, BigDecimal qty)                  { return client().placeSellOrderForSymbol(sym, qty); }
     @Override public String placeShortBuyOrderForSymbol(String sym, BigDecimal qty)             { return client().placeShortBuyOrderForSymbol(sym, qty); }
     @Override public String placeStopLossOrderForSymbol(String side, String ps, BigDecimal qty, BigDecimal stop, String sym)   { return client().placeStopLossOrderForSymbol(side, ps, qty, stop, sym); }
     @Override public String placeTakeProfitOrderForSymbol(String side, String ps, BigDecimal qty, BigDecimal stop, String sym) { return client().placeTakeProfitOrderForSymbol(side, ps, qty, stop, sym); }
-    @Override public boolean cancelOrder(String orderId)                                         { return client().cancelOrder(orderId); }
-    @Override public double getSpreadPct(String symbol)                                          { return client().getSpreadPct(symbol); }
-    @Override public String placeStopLossOrder(String side, String ps, BigDecimal qty, BigDecimal stop)   { return client().placeStopLossOrder(side, ps, qty, stop); }
-    @Override public String placeTakeProfitOrder(String side, String ps, BigDecimal qty, BigDecimal stop)  { return client().placeTakeProfitOrder(side, ps, qty, stop); }
+    @Override public boolean cancelOrder(String orderId, String symbol)                            { return client().cancelOrder(orderId, symbol); }
+    @Override public double getSpreadPct(String symbol)                                            { return client().getSpreadPct(symbol); }
     @Override public BigDecimal roundQuantityForSymbol(String sym, BigDecimal qty)               { return client().roundQuantityForSymbol(sym, qty); }
     @Override public BigDecimal getBalanceForBot(String asset, String k, String s)               { return client().getBalanceForBot(asset, k, s); }
     @Override public String placeBuyOrderForBot(BigDecimal qty, String k, String s, String sym)  { return client().placeBuyOrderForBot(qty, k, s, sym); }

@@ -263,7 +263,7 @@ public class TradeManager {
                         try {
                             ok = (botCreds != null)
                                     ? exchangeClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol)
-                                    : exchangeClient.cancelOrder(trade.getStopLossOrderId());
+                                    : exchangeClient.cancelOrder(trade.getStopLossOrderId(), tradeSymbol);
                         } catch (Exception ce) {
                             // 401/404 means order doesn't exist or creds mismatch — treat as "already gone"
                             logger.warn("Cleanup: could not cancel SL order {} for Trade {} ({}), treating as cleared",
@@ -278,7 +278,7 @@ public class TradeManager {
                         try {
                             ok = (botCreds != null)
                                     ? exchangeClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol)
-                                    : exchangeClient.cancelOrder(trade.getTakeProfitOrderId());
+                                    : exchangeClient.cancelOrder(trade.getTakeProfitOrderId(), tradeSymbol);
                         } catch (Exception ce) {
                             logger.warn("Cleanup: could not cancel TP order {} for Trade {} ({}), treating as cleared",
                                     trade.getTakeProfitOrderId(), trade.getId(), ce.getMessage());
@@ -466,13 +466,13 @@ public class TradeManager {
             } catch (Exception e) {
                 if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                     logger.warn("Bot credentials failed with 401 for userId={} sym={}. Falling back to global credentials.", userId, sym);
-                    executeEntry(signal, "LONG", exchangeClient::placeBuyOrder, null);
+                    executeEntry(signal, "LONG", qty -> exchangeClient.placeBuyOrderForSymbol(sym, qty), null);
                 } else {
                     throw e;
                 }
             }
         } else {
-            executeEntry(signal, "LONG", exchangeClient::placeBuyOrder, null);
+            executeEntry(signal, "LONG", qty -> exchangeClient.placeBuyOrderForSymbol(sym, qty), null);
         }
     }
 
@@ -490,13 +490,13 @@ public class TradeManager {
             } catch (Exception e) {
                 if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                     logger.warn("Bot credentials failed with 401 for userId={} sym={}. Falling back to global credentials.", userId, sym);
-                    executeEntry(signal, "SHORT", exchangeClient::placeShortSellOrder, null);
+                    executeEntry(signal, "SHORT", qty -> exchangeClient.placeShortSellOrderForSymbol(sym, qty), null);
                 } else {
                     throw e;
                 }
             }
         } else {
-            executeEntry(signal, "SHORT", exchangeClient::placeShortSellOrder, null);
+            executeEntry(signal, "SHORT", qty -> exchangeClient.placeShortSellOrderForSymbol(sym, qty), null);
         }
     }
 
@@ -776,9 +776,9 @@ public class TradeManager {
             if (orderId == null && botCreds != null) {
                 logger.warn("Bot order placement failed for {}. Falling back to global credentials.", tradeSymbol);
                 if (isLong) {
-                    orderId = exchangeClient.placeBuyOrder(quantity);
+                    orderId = exchangeClient.placeBuyOrderForSymbol(tradeSymbol, quantity);
                 } else {
-                    orderId = exchangeClient.placeShortSellOrder(quantity);
+                    orderId = exchangeClient.placeShortSellOrderForSymbol(tradeSymbol, quantity);
                 }
                 if (orderId != null) {
                     usingBotCreds = false; // Ensure SL/TP also use global
@@ -832,17 +832,17 @@ public class TradeManager {
                 }
                 tradeJournalData.put(trade.getId(), jed);
 
-                // Place conditional SL and TP orders on Binance (server-side execution)
+                // Place conditional SL and TP orders on active exchange (server-side execution)
                 String slSide = isLong ? "SELL" : "BUY";
                 String tpSide = isLong ? "SELL" : "BUY";
                 String positionSide = isLong ? "LONG" : "SHORT";
 
                 String slOrderId = (usingBotCreds)
                         ? exchangeClient.placeStopLossOrderForBot(slSide, positionSide, quantity, stopLoss, botCreds[0], botCreds[1], tradeSymbol)
-                        : exchangeClient.placeStopLossOrder(slSide, positionSide, quantity, stopLoss);
+                        : exchangeClient.placeStopLossOrderForSymbol(slSide, positionSide, quantity, stopLoss, tradeSymbol);
                 String tpOrderId = (usingBotCreds)
                         ? exchangeClient.placeTakeProfitOrderForBot(tpSide, positionSide, quantity, takeProfit, botCreds[0], botCreds[1], tradeSymbol)
-                        : exchangeClient.placeTakeProfitOrder(tpSide, positionSide, quantity, takeProfit);
+                        : exchangeClient.placeTakeProfitOrderForSymbol(tpSide, positionSide, quantity, takeProfit, tradeSymbol);
 
                 if (slOrderId != null && tpOrderId != null) {
                     trade.setStopLossOrderId(slOrderId);
@@ -864,7 +864,7 @@ public class TradeManager {
                 logger.info("✅ {} trade executed successfully. Trade ID: {}, Order ID: {}",
                         action, trade.getId(), orderId);
             } else {
-                logger.error("❌ Failed to execute {} order on Binance", action);
+                logger.error("❌ Failed to execute {} order on active exchange", action);
             }
 
         } catch (Exception e) {
@@ -1037,7 +1037,7 @@ public class TradeManager {
                 logger.warn("Missing SL order for Trade {} — creating now", trade.getId());
                 String slOrderId = (botCreds != null)
                         ? exchangeClient.placeStopLossOrderForBot(slSide, positionSide, quantity, trade.getStopLoss(), botCreds[0], botCreds[1], tradeSymbol)
-                        : exchangeClient.placeStopLossOrder(slSide, positionSide, quantity, trade.getStopLoss());
+                        : exchangeClient.placeStopLossOrderForSymbol(slSide, positionSide, quantity, trade.getStopLoss(), tradeSymbol);
                 if (slOrderId != null) {
                     trade.setStopLossOrderId(slOrderId);
                     tradeRepository.save(trade);
@@ -1051,7 +1051,7 @@ public class TradeManager {
                 logger.warn("Missing TP order for Trade {} — creating now", trade.getId());
                 String tpOrderId = (botCreds != null)
                         ? exchangeClient.placeTakeProfitOrderForBot(tpSide, positionSide, quantity, trade.getTakeProfit(), botCreds[0], botCreds[1], tradeSymbol)
-                        : exchangeClient.placeTakeProfitOrder(tpSide, positionSide, quantity, trade.getTakeProfit());
+                        : exchangeClient.placeTakeProfitOrderForSymbol(tpSide, positionSide, quantity, trade.getTakeProfit(), tradeSymbol);
                 if (tpOrderId != null) {
                     trade.setTakeProfitOrderId(tpOrderId);
                     tradeRepository.save(trade);
@@ -1217,14 +1217,14 @@ public class TradeManager {
                 }
             }
             if (newSlOrderId == null) {
-                newSlOrderId = exchangeClient.placeStopLossOrder(slSide, positionSide, trade.getQuantity(), trade.getStopLoss());
+                newSlOrderId = exchangeClient.placeStopLossOrderForSymbol(slSide, positionSide, trade.getQuantity(), trade.getStopLoss(), tradeSymbol);
                 usedBotCreds = false;
             }
 
             if (newSlOrderId != null) {
                 trade.setStopLossOrderId(newSlOrderId);
                 tradeRepository.save(trade);
-                logger.info("Updated Binance SL order for Trade {}: new orderId={} (bot={})", trade.getId(), newSlOrderId, usedBotCreds);
+                logger.info("Updated SL order for Trade {}: new orderId={} (bot={})", trade.getId(), newSlOrderId, usedBotCreds);
 
                 // 2. Only cancel OLD order after new one is confirmed
                 if (oldSlOrderId != null && !oldSlOrderId.isEmpty()) {
@@ -1239,7 +1239,7 @@ public class TradeManager {
                         }
                     }
                     if (!cancelled) {
-                        cancelled = exchangeClient.cancelOrder(oldSlOrderId);
+                        cancelled = exchangeClient.cancelOrder(oldSlOrderId, tradeSymbol);
                     }
                     if (!cancelled) {
                         logger.warn("Failed to cancel old SL order {} for Trade {} — harmless, new SL is active", oldSlOrderId, trade.getId());
@@ -1249,7 +1249,7 @@ public class TradeManager {
                 logger.error("CRITICAL: Failed to place new SL order for Trade {}. Old SL still active: {}", trade.getId(), oldSlOrderId);
             }
         } catch (Exception e) {
-            logger.error("Error updating Binance SL order for Trade {}: {}", trade.getId(), e.getMessage());
+            logger.error("Error updating SL order for Trade {}: {}", trade.getId(), e.getMessage());
         }
     }
 
@@ -1437,7 +1437,7 @@ public class TradeManager {
                         }
                     }
                 }
-                if (!cancelled) exchangeClient.cancelOrder(trade.getStopLossOrderId());
+                if (!cancelled) exchangeClient.cancelOrder(trade.getStopLossOrderId(), tradeSymbol);
             }
             if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
                 boolean cancelled = false;
@@ -1449,7 +1449,7 @@ public class TradeManager {
                         }
                     }
                 }
-                if (!cancelled) exchangeClient.cancelOrder(trade.getTakeProfitOrderId());
+                if (!cancelled) exchangeClient.cancelOrder(trade.getTakeProfitOrderId(), tradeSymbol);
             }
 
             // Commission = round-trip taker fee on notional (0.05% entry + 0.05% exit = 0.10%)
@@ -1491,7 +1491,7 @@ public class TradeManager {
                         }
                     }
                 }
-                if (!cancelled) exchangeClient.cancelOrder(trade.getStopLossOrderId());
+                if (!cancelled) exchangeClient.cancelOrder(trade.getStopLossOrderId(), tradeSymbol);
             }
             if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
                 boolean cancelled = false;
@@ -1503,7 +1503,7 @@ public class TradeManager {
                         }
                     }
                 }
-                if (!cancelled) exchangeClient.cancelOrder(trade.getTakeProfitOrderId());
+                if (!cancelled) exchangeClient.cancelOrder(trade.getTakeProfitOrderId(), tradeSymbol);
             }
 
             // Close position (try bot first, fallback to global on 401)
@@ -1531,13 +1531,13 @@ public class TradeManager {
             }
 
             if (orderId == null) {
-                // Binance close failed — position likely already closed by algo order (SL/TP triggered on Binance)
+                // Exchange close failed — position likely already closed by algo order (SL/TP triggered on exchange)
                 // Force-close in DB to prevent trade stuck in OPEN state forever
-                logger.warn("⚠️ Could not place close order for Trade {} on Binance (position may already be closed by algo order). Force-closing in DB at price {}.",
+                logger.warn("⚠️ Could not place close order for Trade {} on active exchange (position may already be closed by algo order). Force-closing in DB at price {}.",
                         trade.getId(), exitPrice);
             }
 
-            // Close in DB regardless: if orderId is null, algo order already closed the position on Binance
+            // Close in DB regardless: if orderId is null, algo order already closed the position on the exchange
             BigDecimal commission = trade.getQuantity()
                     .multiply(trade.getEntryPrice())
                     .multiply(BigDecimal.valueOf(0.001))

@@ -361,16 +361,6 @@ public class BingXClient implements ExchangeClient {
     }
 
     @Override
-    public String placeBuyOrder(BigDecimal quantity) {
-        return placeMarketOrder("SOLUSDT", "BUY", "LONG", quantity, false);
-    }
-
-    @Override
-    public String placeShortSellOrder(BigDecimal quantity) {
-        return placeMarketOrder("SOLUSDT", "SELL", "SHORT", quantity, false);
-    }
-
-    @Override
     public String placeBuyOrderForSymbol(String sym, BigDecimal quantity) {
         return placeMarketOrder(sym, "BUY", "LONG", quantity, false);
     }
@@ -403,10 +393,11 @@ public class BingXClient implements ExchangeClient {
     }
 
     @Override
-    public boolean cancelOrder(String orderId) {
+    public boolean cancelOrder(String orderId, String symbol) {
         if (!configured) return true;
         try {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+            params.put("symbol", toBingXSymbol(symbol));
             params.put("orderId", orderId);
             String query = buildSignedQuery(params);
             webClient.method(org.springframework.http.HttpMethod.DELETE)
@@ -451,16 +442,6 @@ public class BingXClient implements ExchangeClient {
             logger.warn("BingX getSpreadPct error for {}: {}", sym, e.getMessage());
         }
         return 999.0;
-    }
-
-    @Override
-    public String placeStopLossOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice) {
-        return placeConditionalOrder("SOLUSDT", side, positionSide, quantity, stopPrice, "STOP_MARKET");
-    }
-
-    @Override
-    public String placeTakeProfitOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice) {
-        return placeConditionalOrder("SOLUSDT", side, positionSide, quantity, stopPrice, "TAKE_PROFIT_MARKET");
     }
 
     // ── Per-bot credentials (Phase 4: actual per-user signing) ──────────────────
@@ -527,7 +508,7 @@ public class BingXClient implements ExchangeClient {
 
     @Override
     public boolean cancelOrderForBot(String orderId, String botKey, String botSecret, String sym) {
-        if (botKey == null || botKey.isEmpty()) return cancelOrder(orderId);
+        if (botKey == null || botKey.isEmpty()) return cancelOrder(orderId, sym);
         try {
             String bxSym = toBingXSymbol(sym);
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();

@@ -747,7 +747,8 @@ public class BinanceClient implements ExchangeClient {
         }
     }
 
-    public boolean cancelOrder(String orderId) {
+    @Override
+    public boolean cancelOrder(String orderId, String targetSymbol) {
         if (!configured) {
             return true;
         }
@@ -755,9 +756,10 @@ public class BinanceClient implements ExchangeClient {
             logger.info("TESTNET: Skipping cancel for dummy order {}", orderId);
             return true;
         }
+        String sym = targetSymbol != null ? targetSymbol : symbol;
         try {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
-            params.put("symbol", symbol);
+            params.put("symbol", sym);
             params.put("orderId", orderId);
             String query = buildSignedQuery(params);
 
@@ -772,14 +774,14 @@ public class BinanceClient implements ExchangeClient {
             return true;
         } catch (Exception e) {
             logger.warn("Failed to cancel order {} via /fapi/v1/order: {}, trying /fapi/v1/algoOrder", orderId, e.getMessage());
-            return cancelAlgoOrder(orderId);
+            return cancelAlgoOrder(orderId, sym);
         }
     }
 
-    private boolean cancelAlgoOrder(String orderId) {
+    private boolean cancelAlgoOrder(String orderId, String targetSymbol) {
         try {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
-            params.put("symbol", symbol);
+            params.put("symbol", targetSymbol);
             params.put("algoId", orderId);
             String query = buildSignedQuery(params);
 
@@ -1069,7 +1071,7 @@ public class BinanceClient implements ExchangeClient {
 
     public boolean cancelOrderForBot(String orderId, String botApiKey, String botApiSecret, String targetSymbol) {
         if (botApiKey == null || botApiKey.isEmpty()) {
-            return cancelOrder(orderId);
+            return cancelOrder(orderId, targetSymbol);
         }
         if (orderId != null && orderId.startsWith("TESTNET_")) {
             logger.info("[Bot] TESTNET: Skipping cancel for dummy order {}", orderId);

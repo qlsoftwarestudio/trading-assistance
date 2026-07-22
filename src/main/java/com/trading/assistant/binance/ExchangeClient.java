@@ -26,9 +26,6 @@ public interface ExchangeClient {
     void setLeverageForBot(String targetSymbol, int leverage, String apiKey, String apiSecret);
 
     // ── Orders (global credentials) ──────────────────────────────────────────────
-    String placeBuyOrder(BigDecimal quantity);
-    String placeShortSellOrder(BigDecimal quantity);
-
     String placeBuyOrderForSymbol(String sym, BigDecimal quantity);
     String placeShortSellOrderForSymbol(String sym, BigDecimal quantity);
     String placeSellOrderForSymbol(String sym, BigDecimal quantity);
@@ -39,14 +36,10 @@ public interface ExchangeClient {
     String placeTakeProfitOrderForSymbol(String side, String positionSide,
                                          BigDecimal quantity, BigDecimal stopPrice, String sym);
 
-    boolean cancelOrder(String orderId);
+    boolean cancelOrder(String orderId, String symbol);
 
     // Spread check (Hunter / scalp gate)
     double getSpreadPct(String symbol);
-
-    // Legacy single-symbol conditional orders (used in trailing SL replace logic)
-    String placeStopLossOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice);
-    String placeTakeProfitOrder(String side, String positionSide, BigDecimal quantity, BigDecimal stopPrice);
 
     // ── Utility ──────────────────────────────────────────────────────────────────
     BigDecimal roundQuantityForSymbol(String sym, BigDecimal quantity);
