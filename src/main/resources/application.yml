@@ -74,16 +74,16 @@ trading:
     min-momentum: 0.1
     stop-loss-pct: 0.3        # Forex fallback SL (structural SL overrides when enabled)
     take-profit-pct: 0.6      # Fallback TP (2:1 vs fallback SL)
-    position-size-pct: 30.0
-    leverage: 7
+    position-size-pct: 15.0      # Lower risk per trade for small account ($400)
+    leverage: 5                  # Reduced leverage to survive losing streaks
     enabled: true
-    max-concurrent-trades: 2
+    max-concurrent-trades: 1      # One trade at a time with small capital
     max-hold-minutes: 45
     require-rsi-reversal: false    # OFF: Stoch+BB + SMC structure/order-block provide confirmation
     # Risk Management
     use-atr-stop: true           # ATR-based SL with 2:1 auto TP (fallback when structural SL off)
     # Per-symbol SL%:TP% (2:1 R:R). Forex needs tight SL. JPY pairs quoted with 2-3 decimals.
-    symbol-risk-config: ${TRADING_STRATEGY_SYMBOL_RISK_CONFIG:EURUSD:0.25:0.50,GBPUSD:0.30:0.60,USDJPY:0.25:0.50}
+    symbol-risk-config: ${TRADING_STRATEGY_SYMBOL_RISK_CONFIG:EURUSD:0.20:0.40,GBPUSD:0.25:0.50,USDJPY:0.20:0.40}
     # Per-symbol Bollinger Band period
     symbol-bb-period: ${TRADING_STRATEGY_SYMBOL_BB_PERIOD:EURUSD:25,GBPUSD:25,USDJPY:25}
     # Per-symbol RSI thresholds (forex tends to be less extreme than crypto)
@@ -97,12 +97,12 @@ trading:
     use-htf-structure-filter: ${TRADING_STRATEGY_USE_HTF_STRUCTURE_FILTER:true}
     htf-timeframe: 1h
     htf-klines: 120
-    htf-pivot-strength: 3
+    htf-pivot-strength: 2         # Relaxed to allow more macro structure alignments
     # Order Blocks: M5 trigger only fires when price is inside a valid demand/supply OB
     use-order-block-filter: ${TRADING_STRATEGY_USE_ORDER_BLOCK_FILTER:true}
-    ob-pivot-strength: 2
-    ob-displacement-atr: 1.5
-    ob-max-blocks: 5
+    ob-pivot-strength: 1          # More sensitive OB detection
+    ob-displacement-atr: 1.0       # Less displacement required for valid OB
+    ob-max-blocks: 10            # Keep more historical blocks alive
     # Structural SL + R:R filter: SL beyond last swing, TP at >=1:2, abort if unreachable
     use-structural-sl: ${TRADING_STRATEGY_USE_STRUCTURAL_SL:true}
     rr-min-ratio: 2.0
@@ -116,13 +116,15 @@ trading:
     trailing-stop-pct: 0.6        # Legacy — swing now uses below
     trailing-activation-pct: 0.6  # Legacy — swing now uses below
     # Swing trailing (5m): tight trail to capture profit when trade works
-    swing-trailing-stop-pct: 0.35     # Trail distance for 5m swing (tight to maximize captured profit)
-    swing-trailing-activation-pct: 0.8  # Activate trailing at +0.8% — balance between letting winners run and protecting small gains
+    swing-trailing-stop-pct: 0.25      # Tighter trail to lock small gains with $400 account
+    swing-trailing-activation-pct: 0.5 # Activate trailing earlier for small-account capital protection
     breakeven-activation-pct: 0.4
     min-profit-pct: 0.15
     time-based-trail-pct: 0.5
     time-threshold-min: 10
     sl-cooldown-minutes: 10
+    # Daily loss circuit breaker: stop trading for the day after this account loss percentage
+    max-daily-loss-pct: 2.0
     # Partial TP: close 50% at 1:1 R, move SL to breakeven, trail remaining 50% to full TP
     partial-tp-enabled: true
     # Re-entry: if SL was hit < re-entry-window-minutes ago and setup still valid, allow entry with 50% size

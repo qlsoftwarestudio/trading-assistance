@@ -151,7 +151,7 @@ public class TradeManager {
     @Value("${trading.strategy.re-entry-window-minutes:15}")
     private int reEntryWindowMinutes;
 
-    @Value("${trading.risk.max-daily-loss-pct:5.0}")
+    @Value("${trading.strategy.max-daily-loss-pct:2.0}")
     private double maxDailyLossPct;
 
     @Value("${app.risk.max-capital-per-user-usd:500.0}")
@@ -329,24 +329,25 @@ public class TradeManager {
         Boolean regressionFilterPassed;
     }
 
-    private boolean isDailyLossLimitHit(BigDecimal balance) {
+    private boolean isDailyLossLimitHit(BigDecimal balance, Long userId) {
         try {
             if (balance == null || balance.compareTo(new BigDecimal("1.00")) < 0) {
                 logger.warn("isDailyLossLimitHit: balance=${} too low to compute limit — skipping check.", balance);
                 return false;
             }
             LocalDateTime startOfDay = LocalDateTime.now().toLocalDate().atStartOfDay();
-            BigDecimal dailyPnl = tradeRepository.calculateDailyPnl(startOfDay);
+            BigDecimal dailyPnl = tradeRepository.calculateDailyPnlByUserId(userId, startOfDay);
             BigDecimal limit = balance.multiply(BigDecimal.valueOf(maxDailyLossPct / 100)).negate();
             if (dailyPnl.compareTo(limit) <= 0) {
-                logger.warn("🛑 Daily loss limit hit! Daily P&L: ${} / Limit: -{}% (${}).",
+                logger.warn("🛑 Daily loss limit hit for userId={}! Daily P&L: ${} / Limit: -{}% (${}).",
+                        userId,
                         dailyPnl.setScale(2, RoundingMode.HALF_UP),
                         maxDailyLossPct,
                         limit.abs().setScale(2, RoundingMode.HALF_UP));
                 return true;
             }
         } catch (Exception e) {
-            logger.warn("Could not check daily P&L: {}", e.getMessage());
+            logger.warn("Could not check daily P&L for userId={}: {}", userId, e.getMessage());
         }
         return false;
     }
@@ -544,7 +545,7 @@ public class TradeManager {
             }
 
             // Check daily loss limit
-            if (isDailyLossLimitHit(balance)) {
+            if (isDailyLossLimitHit(balance, userId)) {
                 return;
             }
 

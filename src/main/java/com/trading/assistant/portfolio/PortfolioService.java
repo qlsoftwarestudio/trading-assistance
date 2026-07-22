@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Value;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -27,7 +28,7 @@ import java.util.Map;
 @Service
 public class PortfolioService {
 
-    @Value("${trading.strategy.symbols:HYPEUSDT}")
+    @Value("${trading.strategy.symbols:EURUSD,GBPUSD,USDJPY}")
     private String configuredSymbols;
 
     private static final Logger logger = LoggerFactory.getLogger(PortfolioService.class);
@@ -39,7 +40,7 @@ public class PortfolioService {
     private DailyMetricsRepository dailyMetricsRepository;
 
     @Autowired
-    private ExchangeClient binanceClient;
+    private ExchangeClient exchangeClient;
 
     @Autowired
     private UserRepository userRepository;
@@ -111,7 +112,7 @@ public class PortfolioService {
         Map<String, Object> summary = new HashMap<>();
 
         // Balance (global)
-        BigDecimal balance = binanceClient.getBalance("USDT");
+        BigDecimal balance = exchangeClient.getBalance("USDT");
         summary.put("balance", balance);
 
         // Trades stats
@@ -199,10 +200,39 @@ public class PortfolioService {
         // Max drawdown
         summary.put("maxDrawdown", calculateMaxDrawdown(symbol, userId));
 
+        // Average win / loss and expectancy
+        BigDecimal avgWin = BigDecimal.ZERO;
+        BigDecimal avgLoss = BigDecimal.ZERO;
+        if (winningTrades != null && winningTrades > 0 && grossProfit != null) {
+            avgWin = grossProfit.divide(BigDecimal.valueOf(winningTrades), 4, RoundingMode.HALF_UP);
+        }
+        if (losingTrades != null && losingTrades > 0 && grossLoss != null) {
+            avgLoss = grossLoss.divide(BigDecimal.valueOf(losingTrades), 4, RoundingMode.HALF_UP).negate();
+        }
+        summary.put("avgWin", avgWin);
+        summary.put("avgLoss", avgLoss);
+
+        BigDecimal expectancy = BigDecimal.ZERO;
+        if (totalTrades != null && totalTrades > 0) {
+            BigDecimal winRateDecimal = BigDecimal.valueOf(winningTrades != null ? winningTrades : 0L)
+                    .divide(BigDecimal.valueOf(totalTrades), 4, RoundingMode.HALF_UP);
+            BigDecimal lossRateDecimal = BigDecimal.ONE.subtract(winRateDecimal);
+            expectancy = avgWin.multiply(winRateDecimal).add(avgLoss.multiply(lossRateDecimal));
+        }
+        summary.put("expectancy", expectancy);
+
+        // Today's realized P&L
+        BigDecimal dailyPnl = BigDecimal.ZERO;
+        if (userId != null) {
+            dailyPnl = tradeRepository.calculateDailyPnlByUserId(userId, LocalDate.now().atStartOfDay());
+        }
+        summary.put("dailyPnl", dailyPnl != null ? dailyPnl : BigDecimal.ZERO);
+
         // Current price
+        String firstConfiguredSymbol = configuredSymbols.split(",")[0].trim();
         BigDecimal currentPrice = (symbol != null && !symbol.isEmpty())
-                ? binanceClient.getPrice(symbol)
-                : binanceClient.getPrice("SOLUSDT");
+                ? exchangeClient.getPrice(symbol)
+                : exchangeClient.getPrice(firstConfiguredSymbol);
         summary.put("currentPrice", currentPrice);
 
         // Prices for all configured symbols (best-effort, silently skip unavailable)
@@ -210,7 +240,7 @@ public class PortfolioService {
         for (String sym : configuredSymbols.split(",")) {
             sym = sym.trim();
             if (sym.isEmpty()) continue;
-            try { prices.put(sym, binanceClient.getPrice(sym)); } catch (Exception ignored) {}
+            try { prices.put(sym, exchangeClient.getPrice(sym)); } catch (Exception ignored) {}
         }
         summary.put("prices", prices);
 
