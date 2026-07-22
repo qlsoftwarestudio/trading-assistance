@@ -32,7 +32,7 @@ public class HypeStrategy {
     private static final Logger logger = LoggerFactory.getLogger(HypeStrategy.class);
 
     @Autowired
-    private ExchangeClient binanceClient;
+    private ExchangeClient exchangeClient;
 
     @Autowired
     private IndicatorCalculator indicatorCalculator;
@@ -409,8 +409,7 @@ public class HypeStrategy {
         rsiOverbought = getSymbolRsiOverbought(sym);
 
         try {
-            logger.info("Executing {} 5m swing strategy... [rsiOversold={}, rsiOverbought={}]", sym,
-                    String.format("%.0f", rsiOversold), String.format("%.0f", rsiOverbought));
+            logger.info("Executing {} SMC strategy...", sym);
             // 1. Market context analysis (multi-timeframe, volume, BTC)
             MarketContext marketContext = null;
             if (contextEnabled) {
@@ -423,7 +422,7 @@ public class HypeStrategy {
             }
 
             // 2. Core technical indicators (5m) — fetch 100 to cover BB(50) + regression(50) + buffer
-            List<Kline> klines = binanceClient.getKlines(sym, timeframe, 100);
+            List<Kline> klines = exchangeClient.getKlines(sym, timeframe, 100);
 
             if (klines == null || klines.isEmpty()) {
                 logger.error("No kline data available. Skipping strategy execution.");
@@ -451,7 +450,7 @@ public class HypeStrategy {
             boolean inBearOB = true;
 
             if (useHtfStructureFilter) {
-                List<Kline> htf = binanceClient.getKlines(sym, htfTimeframe, htfKlines);
+                List<Kline> htf = exchangeClient.getKlines(sym, htfTimeframe, htfKlines);
                 MarketStructureAnalyzer.Structure htfStructure =
                         marketStructureAnalyzer.analyzeMacroStructure(htf, htfPivotStrength);
                 logger.info("🏗️ HTF({}) macro structure: {}", htfTimeframe, htfStructure);

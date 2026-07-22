@@ -38,7 +38,7 @@ public class TradeManager {
     private static final Logger logger = LoggerFactory.getLogger(TradeManager.class);
 
     @Autowired
-    private ExchangeClient binanceClient;
+    private ExchangeClient exchangeClient;
 
     @Autowired
     private TradeRepository tradeRepository;
@@ -262,8 +262,8 @@ public class TradeManager {
                         boolean ok = false;
                         try {
                             ok = (botCreds != null)
-                                    ? binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol)
-                                    : binanceClient.cancelOrder(trade.getStopLossOrderId());
+                                    ? exchangeClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol)
+                                    : exchangeClient.cancelOrder(trade.getStopLossOrderId());
                         } catch (Exception ce) {
                             // 401/404 means order doesn't exist or creds mismatch — treat as "already gone"
                             logger.warn("Cleanup: could not cancel SL order {} for Trade {} ({}), treating as cleared",
@@ -277,8 +277,8 @@ public class TradeManager {
                         boolean ok = false;
                         try {
                             ok = (botCreds != null)
-                                    ? binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol)
-                                    : binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                                    ? exchangeClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol)
+                                    : exchangeClient.cancelOrder(trade.getTakeProfitOrderId());
                         } catch (Exception ce) {
                             logger.warn("Cleanup: could not cancel TP order {} for Trade {} ({}), treating as cleared",
                                     trade.getTakeProfitOrderId(), trade.getId(), ce.getMessage());
@@ -462,17 +462,17 @@ public class TradeManager {
         if (creds != null) {
             try {
                 logger.info("Using bot-specific API keys for LONG entry (userId={}, sym={})", userId, sym);
-                executeEntry(signal, "LONG", qty -> binanceClient.placeBuyOrderForBot(qty, creds[0], creds[1], sym), creds);
+                executeEntry(signal, "LONG", qty -> exchangeClient.placeBuyOrderForBot(qty, creds[0], creds[1], sym), creds);
             } catch (Exception e) {
                 if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                     logger.warn("Bot credentials failed with 401 for userId={} sym={}. Falling back to global credentials.", userId, sym);
-                    executeEntry(signal, "LONG", binanceClient::placeBuyOrder, null);
+                    executeEntry(signal, "LONG", exchangeClient::placeBuyOrder, null);
                 } else {
                     throw e;
                 }
             }
         } else {
-            executeEntry(signal, "LONG", binanceClient::placeBuyOrder, null);
+            executeEntry(signal, "LONG", exchangeClient::placeBuyOrder, null);
         }
     }
 
@@ -486,17 +486,17 @@ public class TradeManager {
         if (creds != null) {
             try {
                 logger.info("Using bot-specific API keys for SHORT entry (userId={}, sym={})", userId, sym);
-                executeEntry(signal, "SHORT", qty -> binanceClient.placeShortSellOrderForBot(qty, creds[0], creds[1], sym), creds);
+                executeEntry(signal, "SHORT", qty -> exchangeClient.placeShortSellOrderForBot(qty, creds[0], creds[1], sym), creds);
             } catch (Exception e) {
                 if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                     logger.warn("Bot credentials failed with 401 for userId={} sym={}. Falling back to global credentials.", userId, sym);
-                    executeEntry(signal, "SHORT", binanceClient::placeShortSellOrder, null);
+                    executeEntry(signal, "SHORT", exchangeClient::placeShortSellOrder, null);
                 } else {
                     throw e;
                 }
             }
         } else {
-            executeEntry(signal, "SHORT", binanceClient::placeShortSellOrder, null);
+            executeEntry(signal, "SHORT", exchangeClient::placeShortSellOrder, null);
         }
     }
 
@@ -510,37 +510,37 @@ public class TradeManager {
             boolean usingBotCreds = false;
             if (botCreds != null) {
                 try {
-                    binanceClient.setLeverageForBot(tradeSymbol, leverage, botCreds[0], botCreds[1]);
+                    exchangeClient.setLeverageForBot(tradeSymbol, leverage, botCreds[0], botCreds[1]);
                     usingBotCreds = true;
                 } catch (Exception e) {
                     if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                         logger.warn("Bot credentials 401 for leverage on {}. Falling back to global.", tradeSymbol);
-                        binanceClient.setLeverageForSymbol(tradeSymbol, leverage);
+                        exchangeClient.setLeverageForSymbol(tradeSymbol, leverage);
                         usingBotCreds = false;
                     } else {
                         throw e;
                     }
                 }
             } else {
-                binanceClient.setLeverageForSymbol(tradeSymbol, leverage);
+                exchangeClient.setLeverageForSymbol(tradeSymbol, leverage);
             }
 
             // Get balance — with 401 fallback to global
             BigDecimal balance;
             if (usingBotCreds && botCreds != null) {
                 try {
-                    balance = binanceClient.getBalanceForBot("USDT", botCreds[0], botCreds[1]);
+                    balance = exchangeClient.getBalanceForBot("USDT", botCreds[0], botCreds[1]);
                 } catch (Exception e) {
                     if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                         logger.warn("Bot credentials 401 for balance. Falling back to global.");
-                        balance = binanceClient.getBalance("USDT");
+                        balance = exchangeClient.getBalance("USDT");
                         usingBotCreds = false;
                     } else {
                         throw e;
                     }
                 }
             } else {
-                balance = binanceClient.getBalance("USDT");
+                balance = exchangeClient.getBalance("USDT");
             }
 
             // Check daily loss limit
@@ -603,7 +603,7 @@ public class TradeManager {
 
             // Calculate quantity (consider leverage), rounded to symbol lot size to match Binance execution
             BigDecimal notional = positionSize.multiply(BigDecimal.valueOf(leverage));
-            BigDecimal quantity = binanceClient.roundQuantityForSymbol(tradeSymbol,
+            BigDecimal quantity = exchangeClient.roundQuantityForSymbol(tradeSymbol,
                     notional.divide(currentPrice, 8, RoundingMode.HALF_DOWN));
 
             // Validate minimum notional
@@ -619,7 +619,7 @@ public class TradeManager {
             boolean isLong = "LONG".equals(action);
 
             if (useAtrStop) {
-                List<Kline> klines = binanceClient.getKlines(tradeSymbol, "5m", atrPeriod + 5);
+                List<Kline> klines = exchangeClient.getKlines(tradeSymbol, "5m", atrPeriod + 5);
                 double atr = indicatorCalculator.calculateATR(klines, atrPeriod);
                 if (atr > 0) {
                     stopLoss = indicatorCalculator.atrBasedStopLoss(currentPrice, atr, (int) Math.round(atrMultiplier), isLong)
@@ -711,7 +711,7 @@ public class TradeManager {
             //   (a) the structural SL is wider than structuralSlMaxPct, or
             //   (b) a nearby opposing structural level blocks the target before rrMinRatio.
             if (useStructuralSl) {
-                List<Kline> structKlines = binanceClient.getKlines(tradeSymbol, "5m", structuralSlLookback + structuralSlPivotStrength + 5);
+                List<Kline> structKlines = exchangeClient.getKlines(tradeSymbol, "5m", structuralSlLookback + structuralSlPivotStrength + 5);
                 double entry = currentPrice.doubleValue();
                 if (isLong) {
                     double swingLow = marketStructureAnalyzer.lastSwingLow(structKlines, structuralSlPivotStrength);
@@ -769,16 +769,16 @@ public class TradeManager {
             logger.info("Executing {} entry - Price: {}, Quantity: {}, SL: {}, TP: {}",
                     action, currentPrice, quantity, stopLoss, takeProfit);
 
-            // Place order on Binance
+            // Place order on active exchange (Binance/BingX via router)
             String orderId = orderPlacer.place(quantity);
 
             // Fallback to global credentials if bot order failed with 401 (bot creds may be invalid for this symbol)
             if (orderId == null && botCreds != null) {
                 logger.warn("Bot order placement failed for {}. Falling back to global credentials.", tradeSymbol);
                 if (isLong) {
-                    orderId = binanceClient.placeBuyOrder(quantity);
+                    orderId = exchangeClient.placeBuyOrder(quantity);
                 } else {
-                    orderId = binanceClient.placeShortSellOrder(quantity);
+                    orderId = exchangeClient.placeShortSellOrder(quantity);
                 }
                 if (orderId != null) {
                     usingBotCreds = false; // Ensure SL/TP also use global
@@ -824,7 +824,7 @@ public class TradeManager {
                 jed.inBuyZone = signal.getInBuyZone();
                 jed.inSellZone = signal.getInSellZone();
                 if (useAtrStop) {
-                    List<Kline> klines = binanceClient.getKlines(tradeSymbol, "5m", atrPeriod + 5);
+                    List<Kline> klines = exchangeClient.getKlines(tradeSymbol, "5m", atrPeriod + 5);
                     double atr = indicatorCalculator.calculateATR(klines, atrPeriod);
                     if (atr > 0) {
                         jed.atrAtEntry = BigDecimal.valueOf(atr);
@@ -838,11 +838,11 @@ public class TradeManager {
                 String positionSide = isLong ? "LONG" : "SHORT";
 
                 String slOrderId = (usingBotCreds)
-                        ? binanceClient.placeStopLossOrderForBot(slSide, positionSide, quantity, stopLoss, botCreds[0], botCreds[1], tradeSymbol)
-                        : binanceClient.placeStopLossOrder(slSide, positionSide, quantity, stopLoss);
+                        ? exchangeClient.placeStopLossOrderForBot(slSide, positionSide, quantity, stopLoss, botCreds[0], botCreds[1], tradeSymbol)
+                        : exchangeClient.placeStopLossOrder(slSide, positionSide, quantity, stopLoss);
                 String tpOrderId = (usingBotCreds)
-                        ? binanceClient.placeTakeProfitOrderForBot(tpSide, positionSide, quantity, takeProfit, botCreds[0], botCreds[1], tradeSymbol)
-                        : binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, takeProfit);
+                        ? exchangeClient.placeTakeProfitOrderForBot(tpSide, positionSide, quantity, takeProfit, botCreds[0], botCreds[1], tradeSymbol)
+                        : exchangeClient.placeTakeProfitOrder(tpSide, positionSide, quantity, takeProfit);
 
                 if (slOrderId != null && tpOrderId != null) {
                     trade.setStopLossOrderId(slOrderId);
@@ -905,7 +905,7 @@ public class TradeManager {
             Map<String, BigDecimal> priceCache = new ConcurrentHashMap<>();
             for (Trade trade : openTrades) {
                 String sym = trade.getSymbol();
-                BigDecimal price = priceCache.computeIfAbsent(sym, s -> binanceClient.getPrice(s));
+                BigDecimal price = priceCache.computeIfAbsent(sym, s -> exchangeClient.getPrice(s));
                 if (price != null && price.compareTo(BigDecimal.ZERO) > 0) {
                     checkPriceAgainstSLTP(trade, price);
                 } else {
@@ -987,19 +987,19 @@ public class TradeManager {
             String sym = trade.getSymbol();
             String[] botCreds = resolveBotCredentials(trade.getUserId(), sym);
             BigDecimal halfQty = trade.getQuantity().divide(new BigDecimal("2"), 8, RoundingMode.HALF_DOWN);
-            halfQty = binanceClient.roundQuantityForSymbol(sym, halfQty);
+            halfQty = exchangeClient.roundQuantityForSymbol(sym, halfQty);
             if (halfQty.compareTo(BigDecimal.ZERO) <= 0) return;
 
             String orderId = null;
             if (botCreds != null) {
                 orderId = isLong
-                        ? binanceClient.placeSellOrderForBot(halfQty, botCreds[0], botCreds[1], sym)
-                        : binanceClient.placeShortBuyOrderForBot(halfQty, botCreds[0], botCreds[1], sym);
+                        ? exchangeClient.placeSellOrderForBot(halfQty, botCreds[0], botCreds[1], sym)
+                        : exchangeClient.placeShortBuyOrderForBot(halfQty, botCreds[0], botCreds[1], sym);
             }
             if (orderId == null) {
                 orderId = isLong
-                        ? binanceClient.placeSellOrderForSymbol(sym, halfQty)
-                        : binanceClient.placeShortBuyOrderForSymbol(sym, halfQty);
+                        ? exchangeClient.placeSellOrderForSymbol(sym, halfQty)
+                        : exchangeClient.placeShortBuyOrderForSymbol(sym, halfQty);
             }
 
             if (orderId != null) {
@@ -1036,8 +1036,8 @@ public class TradeManager {
             if (trade.getStopLossOrderId() == null || trade.getStopLossOrderId().isEmpty()) {
                 logger.warn("Missing SL order for Trade {} — creating now", trade.getId());
                 String slOrderId = (botCreds != null)
-                        ? binanceClient.placeStopLossOrderForBot(slSide, positionSide, quantity, trade.getStopLoss(), botCreds[0], botCreds[1], tradeSymbol)
-                        : binanceClient.placeStopLossOrder(slSide, positionSide, quantity, trade.getStopLoss());
+                        ? exchangeClient.placeStopLossOrderForBot(slSide, positionSide, quantity, trade.getStopLoss(), botCreds[0], botCreds[1], tradeSymbol)
+                        : exchangeClient.placeStopLossOrder(slSide, positionSide, quantity, trade.getStopLoss());
                 if (slOrderId != null) {
                     trade.setStopLossOrderId(slOrderId);
                     tradeRepository.save(trade);
@@ -1050,8 +1050,8 @@ public class TradeManager {
             if (trade.getTakeProfitOrderId() == null || trade.getTakeProfitOrderId().isEmpty()) {
                 logger.warn("Missing TP order for Trade {} — creating now", trade.getId());
                 String tpOrderId = (botCreds != null)
-                        ? binanceClient.placeTakeProfitOrderForBot(tpSide, positionSide, quantity, trade.getTakeProfit(), botCreds[0], botCreds[1], tradeSymbol)
-                        : binanceClient.placeTakeProfitOrder(tpSide, positionSide, quantity, trade.getTakeProfit());
+                        ? exchangeClient.placeTakeProfitOrderForBot(tpSide, positionSide, quantity, trade.getTakeProfit(), botCreds[0], botCreds[1], tradeSymbol)
+                        : exchangeClient.placeTakeProfitOrder(tpSide, positionSide, quantity, trade.getTakeProfit());
                 if (tpOrderId != null) {
                     trade.setTakeProfitOrderId(tpOrderId);
                     tradeRepository.save(trade);
@@ -1206,7 +1206,7 @@ public class TradeManager {
             boolean usedBotCreds = false;
             if (botCreds != null) {
                 try {
-                    newSlOrderId = binanceClient.placeStopLossOrderForBot(slSide, positionSide, trade.getQuantity(), trade.getStopLoss(), botCreds[0], botCreds[1], tradeSymbol);
+                    newSlOrderId = exchangeClient.placeStopLossOrderForBot(slSide, positionSide, trade.getQuantity(), trade.getStopLoss(), botCreds[0], botCreds[1], tradeSymbol);
                     usedBotCreds = true;
                 } catch (Exception e) {
                     if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
@@ -1217,7 +1217,7 @@ public class TradeManager {
                 }
             }
             if (newSlOrderId == null) {
-                newSlOrderId = binanceClient.placeStopLossOrder(slSide, positionSide, trade.getQuantity(), trade.getStopLoss());
+                newSlOrderId = exchangeClient.placeStopLossOrder(slSide, positionSide, trade.getQuantity(), trade.getStopLoss());
                 usedBotCreds = false;
             }
 
@@ -1231,7 +1231,7 @@ public class TradeManager {
                     boolean cancelled = false;
                     if (usedBotCreds && botCreds != null) {
                         try {
-                            cancelled = binanceClient.cancelOrderForBot(oldSlOrderId, botCreds[0], botCreds[1], tradeSymbol);
+                            cancelled = exchangeClient.cancelOrderForBot(oldSlOrderId, botCreds[0], botCreds[1], tradeSymbol);
                         } catch (Exception e) {
                             if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                                 logger.warn("Bot cancel failed with 401 for Trade {}. Trying global.", trade.getId());
@@ -1239,7 +1239,7 @@ public class TradeManager {
                         }
                     }
                     if (!cancelled) {
-                        cancelled = binanceClient.cancelOrder(oldSlOrderId);
+                        cancelled = exchangeClient.cancelOrder(oldSlOrderId);
                     }
                     if (!cancelled) {
                         logger.warn("Failed to cancel old SL order {} for Trade {} — harmless, new SL is active", oldSlOrderId, trade.getId());
@@ -1430,26 +1430,26 @@ public class TradeManager {
             if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().equals(trade.getBinanceOrderId())) {
                 boolean cancelled = false;
                 if (botCreds != null) {
-                    try { cancelled = binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
+                    try { cancelled = exchangeClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
                     catch (Exception e) {
                         if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                             logger.warn("Bot cancel SL failed with 401 for Trade {}. Using global.", trade.getId());
                         }
                     }
                 }
-                if (!cancelled) binanceClient.cancelOrder(trade.getStopLossOrderId());
+                if (!cancelled) exchangeClient.cancelOrder(trade.getStopLossOrderId());
             }
             if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
                 boolean cancelled = false;
                 if (botCreds != null) {
-                    try { cancelled = binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
+                    try { cancelled = exchangeClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
                     catch (Exception e) {
                         if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                             logger.warn("Bot cancel TP failed with 401 for Trade {}. Using global.", trade.getId());
                         }
                     }
                 }
-                if (!cancelled) binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                if (!cancelled) exchangeClient.cancelOrder(trade.getTakeProfitOrderId());
             }
 
             // Commission = round-trip taker fee on notional (0.05% entry + 0.05% exit = 0.10%)
@@ -1484,50 +1484,50 @@ public class TradeManager {
             if (trade.getStopLossOrderId() != null && !trade.getStopLossOrderId().equals(trade.getBinanceOrderId())) {
                 boolean cancelled = false;
                 if (botCreds != null) {
-                    try { cancelled = binanceClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
+                    try { cancelled = exchangeClient.cancelOrderForBot(trade.getStopLossOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
                     catch (Exception e) {
                         if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                             logger.warn("Bot cancel SL failed with 401 for Trade {}. Using global.", trade.getId());
                         }
                     }
                 }
-                if (!cancelled) binanceClient.cancelOrder(trade.getStopLossOrderId());
+                if (!cancelled) exchangeClient.cancelOrder(trade.getStopLossOrderId());
             }
             if (trade.getTakeProfitOrderId() != null && !trade.getTakeProfitOrderId().equals(trade.getBinanceOrderId())) {
                 boolean cancelled = false;
                 if (botCreds != null) {
-                    try { cancelled = binanceClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
+                    try { cancelled = exchangeClient.cancelOrderForBot(trade.getTakeProfitOrderId(), botCreds[0], botCreds[1], tradeSymbol); }
                     catch (Exception e) {
                         if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                             logger.warn("Bot cancel TP failed with 401 for Trade {}. Using global.", trade.getId());
                         }
                     }
                 }
-                if (!cancelled) binanceClient.cancelOrder(trade.getTakeProfitOrderId());
+                if (!cancelled) exchangeClient.cancelOrder(trade.getTakeProfitOrderId());
             }
 
             // Close position (try bot first, fallback to global on 401)
             String orderId = null;
             if ("SHORT".equals(trade.getAction())) {
                 if (botCreds != null) {
-                    try { orderId = binanceClient.placeShortBuyOrderForBot(trade.getQuantity(), botCreds[0], botCreds[1], tradeSymbol); }
+                    try { orderId = exchangeClient.placeShortBuyOrderForBot(trade.getQuantity(), botCreds[0], botCreds[1], tradeSymbol); }
                     catch (Exception e) {
                         if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                             logger.warn("Bot close SHORT failed with 401 for Trade {}. Using global.", trade.getId());
                         }
                     }
                 }
-                if (orderId == null) orderId = binanceClient.placeShortBuyOrderForSymbol(tradeSymbol, trade.getQuantity());
+                if (orderId == null) orderId = exchangeClient.placeShortBuyOrderForSymbol(tradeSymbol, trade.getQuantity());
             } else {
                 if (botCreds != null) {
-                    try { orderId = binanceClient.placeSellOrderForBot(trade.getQuantity(), botCreds[0], botCreds[1], tradeSymbol); }
+                    try { orderId = exchangeClient.placeSellOrderForBot(trade.getQuantity(), botCreds[0], botCreds[1], tradeSymbol); }
                     catch (Exception e) {
                         if (e.getMessage() != null && (e.getMessage().contains("401") || e.getMessage().contains("Unauthorized"))) {
                             logger.warn("Bot close LONG failed with 401 for Trade {}. Using global.", trade.getId());
                         }
                     }
                 }
-                if (orderId == null) orderId = binanceClient.placeSellOrderForSymbol(tradeSymbol, trade.getQuantity());
+                if (orderId == null) orderId = exchangeClient.placeSellOrderForSymbol(tradeSymbol, trade.getQuantity());
             }
 
             if (orderId == null) {
@@ -1628,7 +1628,7 @@ public class TradeManager {
      */
     private double calculateVolatilityAdjustedPositionSizePct() {
         try {
-            List<Kline> klines = binanceClient.getKlines(symbol, "5m", positionSizeAtrLookback + 5);
+            List<Kline> klines = exchangeClient.getKlines(symbol, "5m", positionSizeAtrLookback + 5);
             if (klines == null || klines.size() < positionSizeAtrLookback) {
                 logger.debug("Not enough klines for volatility adjustment, using default size");
                 return positionSizePct;
