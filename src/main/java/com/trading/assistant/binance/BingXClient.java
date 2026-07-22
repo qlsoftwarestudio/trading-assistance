@@ -85,16 +85,34 @@ public class BingXClient implements ExchangeClient {
 
     // ── Symbol format conversion ─────────────────────────────────────────────────
 
+    // BingX perpetual-swap tickers for FX indices use the NCFX*2* prefix (NCFXEUR2USD-USDT, etc.)
+    private static final Map<String, String> FX_SYMBOL_MAP = Map.of(
+            "EURUSD", "NCFXEUR2USD-USDT",
+            "GBPUSD", "NCFXGBP2USD-USDT",
+            "USDJPY", "NCFXUSD2JPY-USDT",
+            "EURJPY", "NCFXEUR2JPY-USDT",
+            "EURGBP", "NCFXEUR2GBP-USDT",
+            "GBPJPY", "NCFXGBP2JPY-USDT",
+            "AUDUSD", "NCFXAUD2USD-USDT",
+            "USDCAD", "NCFXUSD2CAD-USDT",
+            "USDCHF", "NCFXUSD2CHF-USDT",
+            "NZDUSD", "NCFXNZD2USD-USDT"
+    );
+
     /**
      * Converts internal symbol (SOLUSDT) to BingX format (SOL-USDT).
+     * FX pairs (EURUSD, GBPUSD, USDJPY, ...) are mapped to BingX's NCFX*2*-USDT tickers.
      */
     private String toBingXSymbol(String symbol) {
         if (symbol == null) return symbol;
-        if (symbol.endsWith("USDT")) return symbol.substring(0, symbol.length() - 4) + "-USDT";
-        if (symbol.endsWith("JPY"))  return symbol.substring(0, symbol.length() - 3) + "-JPY";  // forex quote in JPY (e.g. USDJPY → USD-JPY)
-        if (symbol.endsWith("USD"))  return symbol.substring(0, symbol.length() - 3) + "-USD";
-        if (symbol.endsWith("BTC"))  return symbol.substring(0, symbol.length() - 3) + "-BTC";
-        return symbol;
+        String upper = symbol.toUpperCase();
+        if (FX_SYMBOL_MAP.containsKey(upper)) {
+            return FX_SYMBOL_MAP.get(upper);
+        }
+        if (upper.endsWith("USDT")) return upper.substring(0, upper.length() - 4) + "-USDT";
+        if (upper.endsWith("USDC")) return upper.substring(0, upper.length() - 4) + "-USDC";
+        if (upper.endsWith("BTC"))  return upper.substring(0, upper.length() - 3) + "-BTC";
+        return upper;
     }
 
     // ── Contract info ────────────────────────────────────────────────────────────

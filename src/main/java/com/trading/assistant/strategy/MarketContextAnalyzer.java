@@ -23,7 +23,7 @@ public class MarketContextAnalyzer {
     private static final Logger logger = LoggerFactory.getLogger(MarketContextAnalyzer.class);
 
     @Autowired
-    private ExchangeClient binanceClient;
+    private ExchangeClient exchangeClient;
 
     @Autowired
     private IndicatorCalculator indicatorCalculator;
@@ -58,9 +58,9 @@ public class MarketContextAnalyzer {
             ctx.setTimeframe("15m");
 
             // 1. Multi-timeframe trend detection
-            List<Kline> klines1h = binanceClient.getKlines(sym, "1h", 250);
-            List<Kline> klines4h = binanceClient.getKlines(sym, "4h", 200);
-            List<Kline> klines1d = binanceClient.getKlines(sym, "1d", 50);
+            List<Kline> klines1h = exchangeClient.getKlines(sym, "1h", 250);
+            List<Kline> klines4h = exchangeClient.getKlines(sym, "4h", 200);
+            List<Kline> klines1d = exchangeClient.getKlines(sym, "1d", 50);
 
             if (klines1h != null && klines1h.size() >= 200) {
                 ctx.setTrend1h(indicatorCalculator.detectTrend(klines1h));
@@ -105,7 +105,7 @@ public class MarketContextAnalyzer {
             }
 
             // 3. Support / Resistance (use 4h for meaningful levels)
-            BigDecimal currentPrice = binanceClient.getPrice(sym);
+            BigDecimal currentPrice = exchangeClient.getPrice(sym);
             if (klines4h != null && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
                 BigDecimal support = indicatorCalculator.findNearestSupport(klines4h, currentPrice, 60);
                 BigDecimal resistance = indicatorCalculator.findNearestResistance(klines4h, currentPrice, 60);
@@ -152,8 +152,8 @@ public class MarketContextAnalyzer {
 
     private void analyzeBtcCorrelation(MarketContext ctx, String symbol, BigDecimal currentPrice) {
         try {
-            List<Kline> symbolKlines = binanceClient.getKlines(symbol, "1h", 100);
-            List<Kline> btcKlines = binanceClient.getKlines(BTC_SYMBOL, "1h", 100);
+            List<Kline> symbolKlines = exchangeClient.getKlines(symbol, "1h", 100);
+            List<Kline> btcKlines = exchangeClient.getKlines(BTC_SYMBOL, "1h", 100);
 
             if (symbolKlines != null && btcKlines != null
                     && symbolKlines.size() == btcKlines.size()
@@ -170,7 +170,7 @@ public class MarketContextAnalyzer {
                 ctx.setBtcCorrelation(correlation);
 
                 // BTC trend on daily
-                List<Kline> btcDaily = binanceClient.getKlines(BTC_SYMBOL, "1d", 50);
+                List<Kline> btcDaily = exchangeClient.getKlines(BTC_SYMBOL, "1d", 50);
                 if (btcDaily != null && btcDaily.size() >= 50) {
                     ctx.setBtcTrend1d(indicatorCalculator.detectTrend(btcDaily));
                 } else {
