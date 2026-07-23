@@ -55,9 +55,16 @@ public class BingXClient implements ExchangeClient {
     @Value("${trading.strategy.symbols:}")
     private List<String> configuredSymbols;
 
+    @Value("${bingx.position-mode:one-way}")
+    private String positionMode;
+
     private WebClient webClient;
     private boolean configured = false;
     private final Map<String, Integer> symbolQuantityPrecision = new ConcurrentHashMap<>();
+
+    private boolean isHedgeMode() {
+        return "hedge".equalsIgnoreCase(positionMode);
+    }
 
     @PostConstruct
     public void init() {
@@ -260,27 +267,35 @@ public class BingXClient implements ExchangeClient {
         if (!configured) return;
         try {
             String bxSym = toBingXSymbol(targetSymbol);
-            LinkedHashMap<String, Object> params = new LinkedHashMap<>();
-            params.put("symbol", bxSym);
-            params.put("side", "LONG");
-            params.put("leverage", leverage);
-            String query = buildSignedQuery(params);
-            webClient.post()
-                    .uri("/openApi/swap/v2/trade/leverage?" + query)
-                    .header("X-BX-APIKEY", apiKey)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-            // Set SHORT leverage too
-            params.put("side", "SHORT");
-            String query2 = buildSignedQuery(params);
-            webClient.post()
-                    .uri("/openApi/swap/v2/trade/leverage?" + query2)
-                    .header("X-BX-APIKEY", apiKey)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-            logger.info("BingX: leverage set to {}x for {}", leverage, bxSym);
+            if (isHedgeMode()) {
+                // Hedge mode: set leverage per side
+                for (String side : new String[]{"LONG", "SHORT"}) {
+                    LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+                    params.put("symbol", bxSym);
+                    params.put("side", side);
+                    params.put("leverage", leverage);
+                    String query = buildSignedQuery(params);
+                    webClient.post()
+                            .uri("/openApi/swap/v2/trade/leverage?" + query)
+                            .header("X-BX-APIKEY", apiKey)
+                            .retrieve()
+                            .bodyToMono(String.class)
+                            .block();
+                }
+            } else {
+                // One-way mode: no side parameter
+                LinkedHashMap<String, Object> params = new LinkedHashMap<>();
+                params.put("symbol", bxSym);
+                params.put("leverage", leverage);
+                String query = buildSignedQuery(params);
+                webClient.post()
+                        .uri("/openApi/swap/v2/trade/leverage?" + query)
+                        .header("X-BX-APIKEY", apiKey)
+                        .retrieve()
+                        .bodyToMono(String.class)
+                        .block();
+            }
+            logger.info("BingX: leverage set to {}x for {} (mode={})", leverage, bxSym, positionMode);
         } catch (Exception e) {
             logger.error("BingX setLeverage error for {}: {}", targetSymbol, e.getMessage());
         }
@@ -306,7 +321,9 @@ public class BingXClient implements ExchangeClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", bxSym);
             params.put("side", side);
-            params.put("positionSide", positionSide);
+            if (isHedgeMode()) {
+                params.put("positionSide", positionSide);
+            }
             params.put("type", "MARKET");
             params.put("quantity", qty.toPlainString());
             if (reduceOnly) params.put("reduceOnly", "true");
@@ -338,11 +355,17 @@ public class BingXClient implements ExchangeClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", bxSym);
             params.put("side", side);
-            params.put("positionSide", positionSide);
+            if (isHedgeMode()) {
+                params.put("positionSide", positionSide);
+            }
             params.put("type", type);
             params.put("quantity", qty.toPlainString());
             params.put("stopPrice", stopPrice.toPlainString());
             params.put("workingType", "MARK_PRICE");
+            if (!isHedgeMode()) {
+                // One-way mode: SL/TP must reduce the existing position
+                params.put("reduceOnly", "true");
+            }
 
             String query = buildSignedQuery(params);
             String response = webClient.post()
@@ -536,7 +559,9 @@ public class BingXClient implements ExchangeClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", bxSym);
             params.put("side", side);
-            params.put("positionSide", positionSide);
+            if (isHedgeMode()) {
+                params.put("positionSide", positionSide);
+            }
             params.put("type", "MARKET");
             params.put("quantity", qty.toPlainString());
             if (reduceOnly) params.put("reduceOnly", "true");
@@ -563,11 +588,16 @@ public class BingXClient implements ExchangeClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", bxSym);
             params.put("side", side);
-            params.put("positionSide", positionSide);
+            if (isHedgeMode()) {
+                params.put("positionSide", positionSide);
+            }
             params.put("type", type);
             params.put("quantity", qty.toPlainString());
             params.put("stopPrice", stopPrice.toPlainString());
             params.put("workingType", "MARK_PRICE");
+            if (!isHedgeMode()) {
+                params.put("reduceOnly", "true");
+            }
             String query = buildSignedQueryWith(params, botSecret);
             String response = webClient.post()
                     .uri("/openApi/swap/v2/trade/order?" + query)

@@ -59,6 +59,8 @@ bingx:
     key: ${BINGX_API_KEY:}
     secret: ${BINGX_SECRET_KEY:}
     base-url: ${BINGX_BASE_URL:https://open-api.bingx.com}
+  # Position mode: "one-way" (default, most common for small accounts) or "hedge"
+  position-mode: ${BINGX_POSITION_MODE:one-way}
 
 # Trading Strategy Configuration
 trading:
