@@ -330,6 +330,7 @@ public class BingXClient implements ExchangeClient {
             params.put("quantity", qty.toPlainString());
             if (reduceOnly) params.put("reduceOnly", "true");
 
+            logger.info("BingX place order request: {}", params);
             String query = buildSignedQuery(params);
             String response = webClient.post()
                     .uri("/openApi/swap/v2/trade/order?" + query)
@@ -367,6 +368,7 @@ public class BingXClient implements ExchangeClient {
                 params.put("reduceOnly", "true");
             }
 
+            logger.info("BingX place conditional order request: {}", params);
             String query = buildSignedQuery(params);
             String response = webClient.post()
                     .uri("/openApi/swap/v2/trade/order?" + query)
@@ -563,6 +565,7 @@ public class BingXClient implements ExchangeClient {
             params.put("type", "MARKET");
             params.put("quantity", qty.toPlainString());
             if (reduceOnly) params.put("reduceOnly", "true");
+            logger.info("BingX bot place order request: {}", params);
             String query = buildSignedQueryWith(params, botSecret);
             String response = webClient.post()
                     .uri("/openApi/swap/v2/trade/order?" + query)
@@ -594,6 +597,7 @@ public class BingXClient implements ExchangeClient {
             if (!isHedgeMode()) {
                 params.put("reduceOnly", "true");
             }
+            logger.info("BingX bot place conditional order request: {}", params);
             String query = buildSignedQueryWith(params, botSecret);
             String response = webClient.post()
                     .uri("/openApi/swap/v2/trade/order?" + query)
