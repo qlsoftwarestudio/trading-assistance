@@ -66,6 +66,10 @@ public class BingXClient implements ExchangeClient {
         return "hedge".equalsIgnoreCase(positionMode);
     }
 
+    private String orderPositionSide(String hedgePositionSide) {
+        return isHedgeMode() ? hedgePositionSide : "BOTH";
+    }
+
     @PostConstruct
     public void init() {
         this.webClient = WebClient.builder()
@@ -321,9 +325,7 @@ public class BingXClient implements ExchangeClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", bxSym);
             params.put("side", side);
-            if (isHedgeMode()) {
-                params.put("positionSide", positionSide);
-            }
+            params.put("positionSide", orderPositionSide(positionSide));
             params.put("type", "MARKET");
             params.put("quantity", qty.toPlainString());
             if (reduceOnly) params.put("reduceOnly", "true");
@@ -355,9 +357,7 @@ public class BingXClient implements ExchangeClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", bxSym);
             params.put("side", side);
-            if (isHedgeMode()) {
-                params.put("positionSide", positionSide);
-            }
+            params.put("positionSide", orderPositionSide(positionSide));
             params.put("type", type);
             params.put("quantity", qty.toPlainString());
             params.put("stopPrice", stopPrice.toPlainString());
@@ -559,9 +559,7 @@ public class BingXClient implements ExchangeClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", bxSym);
             params.put("side", side);
-            if (isHedgeMode()) {
-                params.put("positionSide", positionSide);
-            }
+            params.put("positionSide", orderPositionSide(positionSide));
             params.put("type", "MARKET");
             params.put("quantity", qty.toPlainString());
             if (reduceOnly) params.put("reduceOnly", "true");
@@ -588,9 +586,7 @@ public class BingXClient implements ExchangeClient {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("symbol", bxSym);
             params.put("side", side);
-            if (isHedgeMode()) {
-                params.put("positionSide", positionSide);
-            }
+            params.put("positionSide", orderPositionSide(positionSide));
             params.put("type", type);
             params.put("quantity", qty.toPlainString());
             params.put("stopPrice", stopPrice.toPlainString());
